@@ -1,3 +1,0 @@
-package discoverywsn;
-
-@license(LGPL);
