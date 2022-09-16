@@ -17,14 +17,27 @@
 #define INET_APPLICATIONS_DISCOVERYAPP_DISCOVERYAPP_H_
 
 #include <vector>
+#include <list>
+#include <string>
 
 #include "inet/applications/base/ApplicationBase.h"
 #include "inet/common/clock/ClockUserModuleMixin.h"
 #include "inet/transportlayer/contract/udp/UdpSocket.h"
 
+
 namespace inet {
 
 extern template class ClockUserModuleMixin<ApplicationBase>;
+
+
+class Service {
+public:
+    Service() {};
+    ~Service() {};
+
+    uint32_t id;
+    char description[128];
+};
 
 class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, public UdpSocket::ICallback
 {
@@ -47,6 +60,10 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     // statistics
     int numSent = 0;
     int numReceived = 0;
+
+    //State and data LISTS
+    std::list<std::pair<unsigned int, unsigned int>> state_vector;
+    std::list<std::tuple<unsigned int, unsigned int, std::list<Service>>> data_vector;
 
   protected:
     virtual int numInitStages() const override { return NUM_INIT_STAGES; }
@@ -72,6 +89,9 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     virtual void socketDataArrived(UdpSocket *socket, Packet *packet) override;
     virtual void socketErrorArrived(UdpSocket *socket, Indication *indication) override;
     virtual void socketClosed(UdpSocket *socket) override;
+
+    //tools
+    std::string state_vector_string();
 
 public:
     DiscoveryApp() {};

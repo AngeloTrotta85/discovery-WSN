@@ -16,7 +16,8 @@
 #include "DiscoveryApp.h"
 
 
-#include "inet/applications/base/ApplicationPacket_m.h"
+//#include "inet/applications/base/ApplicationPacket_m.h"
+#include "SyncCheckPacket_m.h"
 #include "inet/common/ModuleAccess.h"
 #include "inet/common/TagBase_m.h"
 #include "inet/common/TimeTag_m.h"
@@ -25,6 +26,8 @@
 #include "inet/networklayer/common/FragmentationTag_m.h"
 #include "inet/networklayer/common/L3AddressResolver.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
+
+#include <functional>
 
 namespace inet {
 
@@ -101,11 +104,12 @@ void DiscoveryApp::setSocketOptions()
 
 L3Address DiscoveryApp::chooseDestAddr()
 {
-    int k = intrand(destAddresses.size());
+    /*int k = intrand(destAddresses.size());
     if (destAddresses[k].isUnspecified() || destAddresses[k].isLinkLocal()) {
         L3AddressResolver().tryResolve(destAddressStr[k].c_str(), destAddresses[k]);
     }
-    return destAddresses[k];
+    return destAddresses[k];*/
+    return Ipv4Address::ALLONES_ADDRESS;
 }
 
 void DiscoveryApp::sendPacket()
@@ -115,9 +119,14 @@ void DiscoveryApp::sendPacket()
     Packet *packet = new Packet(str.str().c_str());
     if (dontFragment)
         packet->addTag<FragmentationReq>()->setDontFragment(true);
-    const auto& payload = makeShared<ApplicationPacket>();
-    payload->setChunkLength(B(par("messageLength")));
+    const auto& payload = makeShared<SyncCheckPacket>();
+
     payload->setSequenceNumber(numSent);
+    payload->setHash(std::hash<std::string>{}(state_vector_string()));
+
+    //payload->setChunkLength(B(par("messageLength")));
+    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint64_t)));
+
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
     packet->insertAtBack(payload);
     L3Address destAddr = chooseDestAddr();
@@ -133,6 +142,7 @@ void DiscoveryApp::processStart()
     socket.bind(*localAddress ? L3AddressResolver().resolve(localAddress) : L3Address(), localPort);
     setSocketOptions();
 
+    /*
     const char *destAddrs = par("destAddresses");
     cStringTokenizer tokenizer(destAddrs);
     const char *token;
@@ -155,7 +165,8 @@ void DiscoveryApp::processStart()
             selfMsg->setKind(STOP);
             scheduleClockEventAt(stopTime, selfMsg);
         }
-    }
+    }*/
+    processSend();
 }
 
 void DiscoveryApp::processSend()
@@ -259,6 +270,15 @@ void DiscoveryApp::handleCrashOperation(LifecycleOperation *operation)
     socket.destroy(); // TODO  in real operating systems, program crash detected by OS and OS closes sockets of crashed programs.
 }
 
+std::string DiscoveryApp::state_vector_string() {
+    std::stringstream ris;
+
+    for (auto const& p : state_vector) {
+        ris << p.first << "," << p.second << ";";
+    }
+
+    return ris.str();
+}
 
 } // namespace inet
 
