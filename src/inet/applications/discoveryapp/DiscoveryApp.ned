@@ -57,6 +57,7 @@ simple DiscoveryApp like IApp
         bool receiveBroadcast = default(false); // if true, makes the socket receive broadcast packets
         bool joinLocalMulticastGroups = default(false); // if true, makes the socket receive packets from all multicast groups set on local interfaces
         @display("i=block/app");
+        @class(::inet::DiscoveryApp);
         @lifecycleSupport;
         double stopOperationExtraTime @unit(s) = default(-1s);    // extra time after lifecycle stop operation finished
         double stopOperationTimeout @unit(s) = default(2s);    // timeout value for lifecycle stop operation
