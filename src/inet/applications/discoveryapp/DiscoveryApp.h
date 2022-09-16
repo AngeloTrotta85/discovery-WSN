@@ -20,6 +20,9 @@
 #include <list>
 #include <string>
 
+#include "SyncCheckPacket_m.h"
+#include "SyncInterestPacket_m.h"
+
 #include "inet/applications/base/ApplicationBase.h"
 #include "inet/common/clock/ClockUserModuleMixin.h"
 #include "inet/transportlayer/contract/udp/UdpSocket.h"
@@ -37,6 +40,14 @@ public:
 
     uint32_t id;
     char description[128];
+};
+
+class Services {
+public:
+    Services() {};
+    ~Services() {};
+
+    std::list<Service> list_services;
 };
 
 class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, public UdpSocket::ICallback
@@ -63,7 +74,9 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
 
     //State and data LISTS
     std::list<std::pair<unsigned int, unsigned int>> state_vector;
-    std::list<std::tuple<unsigned int, unsigned int, std::list<Service>>> data_vector;
+    std::list<std::tuple<unsigned int, unsigned int, Services>> data_vector;
+    unsigned int myCounter = 0;
+    Ipv4Address myIPAddress;
 
   protected:
     virtual int numInitStages() const override { return NUM_INIT_STAGES; }
@@ -92,6 +105,11 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
 
     //tools
     std::string state_vector_string();
+    uint64_t calculate_state_vector_hash();
+
+    //message managers
+    void manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr);
+    void manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr);
 
 public:
     DiscoveryApp() {};
