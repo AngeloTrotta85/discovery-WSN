@@ -423,6 +423,24 @@ void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMs
 
     //check message if different hashes
     //TO-DO
+    std::list<std::pair<L3Address, unsigned int>> worse;
+    std::list<std::tuple<L3Address, unsigned int, Services>> better;
+
+    for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
+        if ((state_map.count(rcvMsg->getSv_addr(i)) == 0 ) || (rcvMsg->getSv_counter(i) > state_map[rcvMsg->getSv_addr(i)].second) ){
+            worse.push_back(std::make_pair(rcvMsg->getSv_addr(i), state_map[rcvMsg->getSv_addr(i)].second));
+        }
+        else if ( (state_map.count(rcvMsg->getSv_addr(i)) != 0 ) && (rcvMsg->getSv_counter(i) < state_map[rcvMsg->getSv_addr(i)].second) ){
+            better.push_back(std::make_touple(
+                    rcvMsg->getSv_addr(i),
+                    std::get<1>(data_map[rcvMsg->getSv_addr(i)]),
+                    std::get<2>(data_map[rcvMsg->getSv_addr(i)])));
+        }
+    }
+
+    for (auto& wel : worse) {
+
+    }
 }
 
 bool DiscoveryApp::checkInterestForward(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr) {
