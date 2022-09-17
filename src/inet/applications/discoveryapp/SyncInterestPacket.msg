@@ -25,6 +25,10 @@ namespace inet;
 // TODO rename to ApplicationHeader and remove ByteCountChunk from ApplicationHeaderSerializer
 class SyncInterestPacket extends FieldsChunk
 {
+    L3Address srcAddr;
+    uint32_t sequenceNumber;
+    uint8_t ttl;
+    
     L3Address sv_addr[];
     unsigned int sv_counter[];
 }

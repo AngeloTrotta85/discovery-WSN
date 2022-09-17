@@ -19,9 +19,11 @@
 #include <vector>
 #include <list>
 #include <string>
+#include <map>
 
 #include "SyncCheckPacket_m.h"
 #include "SyncInterestPacket_m.h"
+#include "SyncRequestPacket_m.h"
 
 #include "inet/applications/base/ApplicationBase.h"
 #include "inet/common/clock/ClockUserModuleMixin.h"
@@ -45,9 +47,16 @@ public:
 class Services {
 public:
     Services() {};
+    Services(Service serv) {
+        list_services.push_back(serv);
+    };
     ~Services() {};
 
     std::list<Service> list_services;
+
+    void add_service(Service s2add){
+        list_services.push_back(s2add);
+    }
 };
 
 class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, public UdpSocket::ICallback
@@ -63,6 +72,7 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     clocktime_t stopTime;
     bool dontFragment = false;
     const char *packetName = nullptr;
+    int dmax;
 
     // state
     UdpSocket socket;
@@ -73,10 +83,19 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     int numReceived = 0;
 
     //State and data LISTS
-    std::list<std::pair<unsigned int, unsigned int>> state_vector;
-    std::list<std::tuple<unsigned int, unsigned int, Services>> data_vector;
+    //std::list<std::pair<L3Address, unsigned int>> state_vector;
+    //std::list<std::tuple<L3Address, unsigned int, Services>> data_vector;
+    std::map<L3Address, std::pair<L3Address, unsigned int>> state_map;
+    std::map<L3Address, std::tuple<L3Address, unsigned int, Services>> data_map;
     unsigned int myCounter = 0;
     Ipv4Address myIPAddress;
+
+    std::map<L3Address, int> forward_sync_check_map;
+    std::map<L3Address, int> forward_sync_interest_map;
+
+    int numInterestSent = 0;
+
+    std::size_t myHash;
 
   protected:
     virtual int numInitStages() const override { return NUM_INIT_STAGES; }
@@ -104,12 +123,25 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     virtual void socketClosed(UdpSocket *socket) override;
 
     //tools
-    std::string state_vector_string();
+    std::string state_vector_string(std::list<std::pair<L3Address, unsigned int>> &sv);
     uint64_t calculate_state_vector_hash();
+
+    bool checkForward(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr);
+    void labelForward(Ptr<const SyncCheckPacket> rcvMsg);
+    void forwardSyncCheck(Ptr<const SyncCheckPacket> rcvMsg);
+
+    bool checkInterestForward(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr);
+    void labelInterestForward(Ptr<const SyncInterestPacket> rcvMsg);
+    void forwardSyncInterest(Ptr<const SyncInterestPacket> rcvMsg);
 
     //message managers
     void manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr);
     void manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr);
+    void manageSyncRequestMessage(Ptr<const SyncRequestPacket> rcvMsg, L3Address rcdAddr);
+
+    void sendSyncInterestPacket();
+
+    void addNewService(Service newService);
 
 public:
     DiscoveryApp() {};

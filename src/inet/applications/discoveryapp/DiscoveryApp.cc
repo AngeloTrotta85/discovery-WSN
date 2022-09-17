@@ -57,6 +57,10 @@ void DiscoveryApp::initialize(int stage)
         WATCH(numSent);
         WATCH(numReceived);
 
+        myHash = calculate_state_vector_hash();
+
+        dmax = par("dmax");
+
         localPort = par("localPort");
         destPort = par("destPort");
         startTime = par("startTime");
@@ -129,11 +133,13 @@ void DiscoveryApp::sendPacket()
         packet->addTag<FragmentationReq>()->setDontFragment(true);
     const auto& payload = makeShared<SyncCheckPacket>();
 
+    payload->setSrcAddr(myIPAddress);
     payload->setSequenceNumber(numSent);
-    payload->setHash(calculate_state_vector_hash());
+    payload->setHash(myHash);
+    payload->setTtl(dmax);
 
     //payload->setChunkLength(B(par("messageLength")));
-    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint64_t)));
+    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint32_t)));
 
     //payload->setHash(std::hash<std::string>{}(state_vector_string()));
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
@@ -279,6 +285,15 @@ void DiscoveryApp::processPacket(Packet *pk)
         if (appmsg_interest) {
             manageSyncInterestMessage(appmsg_interest, remoteAddress);
         }
+        else {
+            const auto& appmsg_request = pk->peekDataAt<SyncRequestPacket>(B(0), B(pk->getByteLength()));
+            if (appmsg_request) {
+                manageSyncRequestMessage(appmsg_request, remoteAddress);
+            }
+            else {
+                throw cRuntimeError("Message (%s)%s is not a valid packet", pk->getClassName(), pk->getName());
+            }
+        }
     }
 
     //if (!appmsg)
@@ -313,38 +328,218 @@ void DiscoveryApp::handleCrashOperation(LifecycleOperation *operation)
     socket.destroy(); // TODO  in real operating systems, program crash detected by OS and OS closes sockets of crashed programs.
 }
 
-std::string DiscoveryApp::state_vector_string() {
+std::string DiscoveryApp::state_vector_string(std::list<std::pair<L3Address, unsigned int>> &sv) {
     std::stringstream ris;
 
-    for (auto const& p : state_vector) {
+    for (auto const& p : sv) {
         ris << p.first << "," << p.second << ";";
     }
 
     return ris.str();
 }
 
-bool compare_state_vector (const std::pair<unsigned int, unsigned int>& first, const std::pair<unsigned int, unsigned int>& second)
+bool compare_state_vector (const std::pair<L3Address, unsigned int>& first, const std::pair<L3Address, unsigned int>& second)
 {
     return (first.first < second.first);
 }
 
 uint64_t DiscoveryApp::calculate_state_vector_hash() {
-
+    std::list<std::pair<L3Address, unsigned int>> state_vector;
+    for (auto const& mapel : state_map) {
+        state_vector.push_back(std::make_pair(mapel.second.first, mapel.second.second));
+    }
     state_vector.sort(compare_state_vector);
 
-    return std::hash<std::string>{}(state_vector_string());
+    return std::hash<std::string>{}(state_vector_string(state_vector));
 }
 
 void DiscoveryApp::manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr) {
 
-    EV_INFO << "Received HASH: " << rcvMsg->getHash() << endl;
+    //EV_INFO << "Received HASH: " << rcvMsg->getHash() << endl;
+
+    //chekc if need to forward
+    if ((rcvMsg->getTtl() > 1) && checkForward(rcvMsg, rcdAddr)) {
+        forwardSyncCheck(rcvMsg);
+
+        labelForward(rcvMsg);
+    }
+
+    //check message if different hashes
+    if (rcvMsg->getHash() != myHash) {
+        //TO-DO
+    }
+}
+
+bool DiscoveryApp::checkForward(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr) {
+    if (forward_sync_check_map.count(rcvMsg->getSrcAddr()) == 0) {
+        return true;
+    }
+    else{
+        return (rcvMsg->getSequenceNumber() > forward_sync_check_map[rcvMsg->getSrcAddr()]);
+    }
+}
+
+void DiscoveryApp::labelForward(Ptr<const SyncCheckPacket> rcvMsg) {
+    forward_sync_check_map[rcvMsg->getSrcAddr()] = rcvMsg->getSequenceNumber();
+}
+
+void DiscoveryApp::forwardSyncCheck(Ptr<const SyncCheckPacket> rcvMsg) {
+
+    std::ostringstream str;
+    str << packetName << "- FWD -" << rcvMsg->getSequenceNumber();
+    Packet *packet = new Packet(str.str().c_str());
+    if (dontFragment)
+        packet->addTag<FragmentationReq>()->setDontFragment(true);
+    const auto& payload = makeShared<SyncCheckPacket>();
+
+    payload->setSequenceNumber(rcvMsg->getSequenceNumber());
+    payload->setSrcAddr(rcvMsg->getSrcAddr());
+    payload->setHash(rcvMsg->getHash());
+    payload->setTtl(rcvMsg->getTtl() - 1);
+
+    //payload->setChunkLength(B(par("messageLength")));
+    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint32_t)));
+
+    //payload->setHash(std::hash<std::string>{}(state_vector_string()));
+    payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
+    packet->insertAtBack(payload);
+    L3Address destAddr = Ipv4Address::ALLONES_ADDRESS;
+    emit(packetSentSignal, packet);
+    socket.sendTo(packet, destAddr, destPort);
+    //numSent++;
 }
 
 void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr) {
 
     EV_INFO << "Received getSv_addrArraySize: " << rcvMsg->getSv_addrArraySize() << endl;
+
+
+    //chekc if need to forward
+    if ((rcvMsg->getTtl() > 1) && checkInterestForward(rcvMsg, rcdAddr)) {
+        forwardSyncInterest(rcvMsg);
+
+        labelInterestForward(rcvMsg);
+    }
+
+    //check message if different hashes
+    //TO-DO
 }
 
+bool DiscoveryApp::checkInterestForward(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr) {
+    if (forward_sync_interest_map.count(rcvMsg->getSrcAddr()) == 0) {
+        return true;
+    }
+    else{
+        return (rcvMsg->getSequenceNumber() > forward_sync_interest_map[rcvMsg->getSrcAddr()]);
+    }
+}
+
+void DiscoveryApp::labelInterestForward(Ptr<const SyncInterestPacket> rcvMsg) {
+    forward_sync_interest_map[rcvMsg->getSrcAddr()] = rcvMsg->getSequenceNumber();
+}
+
+void DiscoveryApp::forwardSyncInterest(Ptr<const SyncInterestPacket> rcvMsg) {
+
+    std::ostringstream str;
+    str << packetName << "-InterestFWD-" << rcvMsg->getSequenceNumber();
+    Packet *packet = new Packet(str.str().c_str());
+    if (dontFragment)
+        packet->addTag<FragmentationReq>()->setDontFragment(true);
+    const auto& payload = makeShared<SyncInterestPacket>();
+
+    payload->setSrcAddr(rcvMsg->getSrcAddr());
+    payload->setSequenceNumber(rcvMsg->getSequenceNumber());
+    payload->setTtl(rcvMsg->getTtl() - 1);
+
+    payload->setSv_addrArraySize(rcvMsg->getSv_addrArraySize());
+    payload->setSv_counterArraySize(rcvMsg->getSv_counterArraySize());
+
+    for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++) {
+        payload->setSv_addr(i, rcvMsg->getSv_addr(i));
+        payload->setSv_counter(i, rcvMsg->getSv_counter(i));
+    }
+
+    //payload->setChunkLength(B(par("messageLength")));
+    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t))) ));
+
+    //payload->setHash(std::hash<std::string>{}(state_vector_string()));
+    payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
+    packet->insertAtBack(payload);
+    L3Address destAddr = Ipv4Address::ALLONES_ADDRESS;
+    emit(packetSentSignal, packet);
+    socket.sendTo(packet, destAddr, destPort);
+    //numInterestSent++;
+}
+
+void DiscoveryApp::manageSyncRequestMessage(Ptr<const SyncRequestPacket> rcvMsg, L3Address rcdAddr) {
+
+    //EV_INFO << "Received msg_data_vector: " << rcvMsg->msg_data_vector.size() << endl;
+}
+
+void DiscoveryApp::addNewService(Service newService){
+
+    if (myIPAddress != Ipv4Address::UNSPECIFIED_ADDRESS) {
+        myCounter++;
+
+        // check if I have already at least one service
+        if (state_map.count(myIPAddress) == 0) {
+            state_map[myIPAddress] = std::make_pair(myIPAddress, myCounter);
+        }
+        else{
+            state_map[myIPAddress].second = myCounter;
+        }
+
+        if (data_map.count(myIPAddress) == 0) {
+            data_map[myIPAddress] = std::make_tuple(myIPAddress, myCounter, Services(newService));
+        }
+        else {
+            std::get<1>(data_map[myIPAddress]) = myCounter;
+            std::get<2>(data_map[myIPAddress]).add_service(newService);
+        }
+
+        myHash = calculate_state_vector_hash();
+
+        //TO-DO send BETTER
+    }
+
+}
+
+
+
+void DiscoveryApp::sendSyncInterestPacket()
+{
+    std::ostringstream str;
+    str << packetName << "-Interest-" << numInterestSent;
+    Packet *packet = new Packet(str.str().c_str());
+    if (dontFragment)
+        packet->addTag<FragmentationReq>()->setDontFragment(true);
+    const auto& payload = makeShared<SyncInterestPacket>();
+
+    payload->setSrcAddr(myIPAddress);
+    payload->setSequenceNumber(numInterestSent);
+    payload->setTtl(dmax);
+
+    payload->setSv_addrArraySize(state_map.size());
+    payload->setSv_counterArraySize(state_map.size());
+
+    int i = 0;
+    for (const auto& svel : state_map){
+        payload->setSv_addr(i, svel.second.first);
+        payload->setSv_counter(i, svel.second.second);
+        i++;
+    }
+
+    //payload->setChunkLength(B(par("messageLength")));
+    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t))) ));
+
+    //payload->setHash(std::hash<std::string>{}(state_vector_string()));
+    payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
+    packet->insertAtBack(payload);
+    L3Address destAddr = Ipv4Address::ALLONES_ADDRESS;
+    emit(packetSentSignal, packet);
+    socket.sendTo(packet, destAddr, destPort);
+    numInterestSent++;
+}
 
 } // namespace inet
 

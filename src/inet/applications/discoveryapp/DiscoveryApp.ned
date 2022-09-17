@@ -38,6 +38,8 @@ import inet.applications.contract.IApp;
 simple DiscoveryApp like IApp
 {
     parameters:
+        int dmax = default(1);
+        
         string interfaceTableModule;   // The path to the InterfaceTable module
         string clockModule = default(""); // relative path of a module that implements IClock; optional
         int localPort = default(-1);  // local port (-1: use ephemeral port)
