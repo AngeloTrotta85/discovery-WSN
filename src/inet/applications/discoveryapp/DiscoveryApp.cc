@@ -270,7 +270,7 @@ void DiscoveryApp::refreshDisplay() const
 
 void DiscoveryApp::processPacket(Packet *pk)
 {
-    printf("START - DiscoveryApp::processPacket \n");fflush(stdout);
+    if (printDebug) { printf("START - DiscoveryApp::processPacket \n");fflush(stdout); }
 
     emit(packetReceivedSignal, pk);
     EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
@@ -284,35 +284,37 @@ void DiscoveryApp::processPacket(Packet *pk)
     if (remoteAddress == Ipv4Address::LOOPBACK_ADDRESS){
         EV_INFO << "Received packet form ME!!!! : " << remoteAddress << ":" << srcPort << endl;
     }
-
-    //EV_INFO << "RECEIVED: " << pk->getClassName() << " - " << pk->getName() << " - " << pk->getClassAndFullName();
-    //std::stringstream ccc;
-    //ccc << "RECEIVED: " << pk->getClassName() << "|" << pk->getName() << "|" << pk->getClassAndFullName() << "|" << pk->getDisplayString() << "|" << pk->;
-
-    //printf("%s\n", ccc.str().c_str());fflush(stdout);
-
-    //check_and_cast(p)
-    std::string sName = std::string(pk->getName());
-    if (sName.find("Check") != std::string::npos) {
-        const auto& appmsg_check = pk->peekDataAt<SyncCheckPacket>(B(0), B(pk->getByteLength()));
-        if (appmsg_check) {
-            manageSyncMessage(appmsg_check, remoteAddress);
-        }
-    }
-    else if (sName.find("Interest") != std::string::npos) {
-        const auto& appmsg_interest = pk->peekDataAt<SyncInterestPacket>(B(0), B(pk->getByteLength()));
-        if (appmsg_interest) {
-            manageSyncInterestMessage(appmsg_interest, remoteAddress);
-        }
-    }
-    else if (sName.find("Request") != std::string::npos) {
-        const auto& appmsg_request = pk->peekDataAt<SyncRequestPacket>(B(0), B(pk->getByteLength()));
-        if (appmsg_request) {
-            manageSyncRequestMessage(appmsg_request, remoteAddress);
-        }
-    }
     else {
-        throw cRuntimeError("Message (%s)%s is not a valid packet", pk->getClassName(), pk->getName());
+
+        //EV_INFO << "RECEIVED: " << pk->getClassName() << " - " << pk->getName() << " - " << pk->getClassAndFullName();
+        //std::stringstream ccc;
+        //ccc << "RECEIVED: " << pk->getClassName() << "|" << pk->getName() << "|" << pk->getClassAndFullName() << "|" << pk->getDisplayString() << "|" << pk->;
+
+        //printf("%s\n", ccc.str().c_str());fflush(stdout);
+
+        //check_and_cast(p)
+        std::string sName = std::string(pk->getName());
+        if (sName.find("Check") != std::string::npos) {
+            const auto& appmsg_check = pk->peekDataAt<SyncCheckPacket>(B(0), B(pk->getByteLength()));
+            if (appmsg_check) {
+                manageSyncMessage(appmsg_check, remoteAddress);
+            }
+        }
+        else if (sName.find("Interest") != std::string::npos) {
+            const auto& appmsg_interest = pk->peekDataAt<SyncInterestPacket>(B(0), B(pk->getByteLength()));
+            //if (appmsg_interest) {
+            //    manageSyncInterestMessage(appmsg_interest, remoteAddress);
+            //}
+        }
+        else if (sName.find("Request") != std::string::npos) {
+            const auto& appmsg_request = pk->peekDataAt<SyncRequestPacket>(B(0), B(pk->getByteLength()));
+            if (appmsg_request) {
+                manageSyncRequestMessage(appmsg_request, remoteAddress);
+            }
+        }
+        else {
+            throw cRuntimeError("Message (%s)%s is not a valid packet", pk->getClassName(), pk->getName());
+        }
     }
 
 
@@ -347,7 +349,7 @@ void DiscoveryApp::processPacket(Packet *pk)
         numReceived++;
     }
 
-    printf("END - DiscoveryApp::processPacket \n");fflush(stdout);
+    if (printDebug) { printf("END - DiscoveryApp::processPacket \n");fflush(stdout); }
 }
 
 void DiscoveryApp::handleStartOperation(LifecycleOperation *operation)
@@ -430,7 +432,7 @@ void DiscoveryApp::labelForward(Ptr<const SyncCheckPacket> rcvMsg) {
 void DiscoveryApp::forwardSyncCheck(Ptr<const SyncCheckPacket> rcvMsg) {
 
     std::ostringstream str;
-    str << packetName << "- FWD -" << rcvMsg->getSequenceNumber();
+    str << packetName << "- FWD CHECK -" << rcvMsg->getSequenceNumber();
     Packet *packet = new Packet(str.str().c_str());
     if (dontFragment)
         packet->addTag<FragmentationReq>()->setDontFragment(true);
@@ -457,8 +459,44 @@ void DiscoveryApp::forwardSyncCheck(Ptr<const SyncCheckPacket> rcvMsg) {
 
 void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr) {
 
-    EV_INFO << "Received getSv_addrArraySize: " << rcvMsg->getSv_addrArraySize() << endl;
+    if (printDebug) { printf("START - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
 
+    std::list<std::pair<L3Address, unsigned int>> worse;
+    std::list<std::tuple<L3Address, unsigned int, Services>> better;
+
+    for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
+        if (printDebug) { printf("C0 I%d - DiscoveryApp::manageSyncInterestMessage \n", i);fflush(stdout); }
+
+        if (state_map.count(rcvMsg->getSv_addr(i)) == 0 ) {
+            if (printDebug) { printf("C1 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+
+        }
+        else {
+            if (rcvMsg->getSv_counter(i) > state_map[rcvMsg->getSv_addr(i)].second) {
+                if (printDebug) { printf("C2 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+
+            }
+            else if (rcvMsg->getSv_counter(i) < state_map[rcvMsg->getSv_addr(i)].second){
+                if (printDebug) { printf("C3 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+
+            }
+        }
+    }
+
+    if (printDebug) { printf("END - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+}
+
+void DiscoveryApp::manageSyncInterestMessage_old(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr) {
+
+    if (printDebug) { printf("START - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+
+    EV_INFO << "Received getSv_addrArraySize: " << rcvMsg->getSv_addrArraySize() << endl;
+    EV_INFO << "Received getSv_counterArraySize: " << rcvMsg->getSv_counterArraySize() << endl;
+    EV_INFO << "Received getSrcAddr: " << rcvMsg->getSrcAddr() << endl;
+
+    if (printDebug) { printf("C0 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+
+    printf("[%s] - Received from %s \n", myIPAddress.str().c_str(), rcdAddr.str().c_str());
 
     //chekc if need to forward
     /*if ((rcvMsg->getTtl() > 1) && checkInterestForward(rcvMsg, rcdAddr)) {
@@ -467,7 +505,7 @@ void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMs
         labelInterestForward(rcvMsg);
     }*/
 
-    return;
+    //return;
 
     //check message if different hashes
     //TO-DO
@@ -475,20 +513,56 @@ void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMs
     std::list<std::tuple<L3Address, unsigned int, Services>> better;
 
     for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
-        if ((state_map.count(rcvMsg->getSv_addr(i)) == 0 ) || (rcvMsg->getSv_counter(i) > state_map[rcvMsg->getSv_addr(i)].second) ){
+        printf("rcvMsg->getSv_addr(i): %s \n", rcvMsg->getSv_addr(i).str().c_str());
+    }
+    for (int i = 0; i < rcvMsg->getSv_counterArraySize(); i++){
+        printf("rcvMsg->getSv_counter(i): %u \n", rcvMsg->getSv_counter(i));
+    }
+
+    for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
+
+        if (printDebug) { printf("C0 I%d - DiscoveryApp::manageSyncInterestMessage \n", i);fflush(stdout); }
+
+        printf("rcvMsg->getSv_addr(i): %s \n", rcvMsg->getSv_addr(i).str().c_str());fflush(stdout);
+
+        if (state_map.count(rcvMsg->getSv_addr(i)) == 0 ) {
+            if (printDebug) { printf("C1 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
             worse.push_back(std::make_pair(rcvMsg->getSv_addr(i), state_map[rcvMsg->getSv_addr(i)].second));
         }
-        else if ( (state_map.count(rcvMsg->getSv_addr(i)) != 0 ) && (rcvMsg->getSv_counter(i) < state_map[rcvMsg->getSv_addr(i)].second) ){
-            better.push_back(std::make_tuple(
-                    rcvMsg->getSv_addr(i),
-                    std::get<1>(data_map[rcvMsg->getSv_addr(i)]),
-                    std::get<2>(data_map[rcvMsg->getSv_addr(i)])));
+        else {
+            if (printDebug) { printf("C2 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+            if (rcvMsg->getSv_counter(i) > state_map[rcvMsg->getSv_addr(i)].second) {
+                if (printDebug) { printf("C3 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+                worse.push_back(std::make_pair(rcvMsg->getSv_addr(i), state_map[rcvMsg->getSv_addr(i)].second));
+            }
+            else if (rcvMsg->getSv_counter(i) < state_map[rcvMsg->getSv_addr(i)].second){
+                if (printDebug) { printf("C4 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+                better.push_back(std::make_tuple(
+                        //rcvMsg->getSv_addr(i),
+                        std::get<0>(data_map[rcvMsg->getSv_addr(i)]),
+                        std::get<1>(data_map[rcvMsg->getSv_addr(i)]),
+                        std::get<2>(data_map[rcvMsg->getSv_addr(i)])));
+            }
+
         }
+
+//        if ((state_map.count(rcvMsg->getSv_addr(i)) == 0 ) || (rcvMsg->getSv_counter(i) > state_map[rcvMsg->getSv_addr(i)].second) ){
+//            worse.push_back(std::make_pair(rcvMsg->getSv_addr(i), state_map[rcvMsg->getSv_addr(i)].second));
+//        }
+//        else if ( (state_map.count(rcvMsg->getSv_addr(i)) != 0 ) && (rcvMsg->getSv_counter(i) < state_map[rcvMsg->getSv_addr(i)].second) ){
+//            better.push_back(std::make_tuple(
+//                    //rcvMsg->getSv_addr(i),
+//                    std::get<0>(data_map[rcvMsg->getSv_addr(i)]),
+//                    std::get<1>(data_map[rcvMsg->getSv_addr(i)]),
+//                    std::get<2>(data_map[rcvMsg->getSv_addr(i)])));
+//        }
     }
 
-    for (auto& wel : worse) {
+    //for (auto& wel : worse) {
 
-    }
+    //}
+
+    if (printDebug) { printf("END - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
 }
 
 bool DiscoveryApp::checkInterestForward(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr) {
@@ -547,20 +621,30 @@ void DiscoveryApp::addNewService(Service newService){
     if (myIPAddress != Ipv4Address::UNSPECIFIED_ADDRESS) {
         myCounter++;
 
+        auto myL3Address = L3Address(myIPAddress);
+
         // check if I have already at least one service
-        if (state_map.count(myIPAddress) == 0) {
-            state_map[myIPAddress] = std::make_pair(myIPAddress, myCounter);
+        if (state_map.count(myL3Address) == 0) {
+            state_map[myL3Address] = std::make_pair(myL3Address, myCounter);
         }
         else{
-            state_map[myIPAddress].second = myCounter;
+            state_map[myL3Address].second = myCounter;
         }
 
-        if (data_map.count(myIPAddress) == 0) {
-            data_map[myIPAddress] = std::make_tuple(myIPAddress, myCounter, Services(newService));
+        for (const auto& svel : state_map){
+
+            printf("[%s] State_map after adding service %s - %u\n", myL3Address.str().c_str(), svel.second.first.str().c_str(), svel.second.second);
+
+        }
+
+        if (data_map.count(myL3Address) == 0) {
+            //data_map[myL3Address] = std::make_tuple(myL3Address, myCounter, Services(newService));
+            data_map[myL3Address] = std::make_tuple(myL3Address, myCounter, Services());
+            std::get<2>(data_map[myL3Address]).add_service(newService);
         }
         else {
-            std::get<1>(data_map[myIPAddress]) = myCounter;
-            std::get<2>(data_map[myIPAddress]).add_service(newService);
+            std::get<1>(data_map[myL3Address]) = myCounter;
+            std::get<2>(data_map[myL3Address]).add_service(newService);
         }
 
         myHash = calculate_state_vector_hash();
@@ -600,10 +684,16 @@ void DiscoveryApp::sendSyncInterestPacket(L3Address dest)
     payload->setSv_addrArraySize(state_map.size());
     payload->setSv_counterArraySize(state_map.size());
 
+
+    printf("[%s] - state_map:%d; data_map:%d\n", myIPAddress.str().c_str(), ((int) state_map.size()), ((int) data_map.size()));
+
     int i = 0;
     for (const auto& svel : state_map){
         payload->setSv_addr(i, svel.second.first);
         payload->setSv_counter(i, svel.second.second);
+
+        printf("[%s] - Sending %s - %u\n", myIPAddress.str().c_str(), payload->getSv_addr(i).str().c_str(), payload->getSv_counter(i));
+
         i++;
     }
 

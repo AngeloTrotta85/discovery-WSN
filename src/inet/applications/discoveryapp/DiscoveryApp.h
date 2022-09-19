@@ -121,6 +121,8 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     int numSent = 0;
     int numReceived = 0;
 
+    bool printDebug = true;
+
     //State and data LISTS
     //std::list<std::pair<L3Address, unsigned int>> state_vector;
     //std::list<std::tuple<L3Address, unsigned int, Services>> data_vector;
@@ -176,6 +178,7 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
 
     //message managers
     void manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr);
+    void manageSyncInterestMessage_old(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr);
     void manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr);
     void manageSyncRequestMessage(Ptr<const SyncRequestPacket> rcvMsg, L3Address rcdAddr);
 
