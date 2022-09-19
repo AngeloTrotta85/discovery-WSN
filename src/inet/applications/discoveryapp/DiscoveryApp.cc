@@ -24,6 +24,7 @@
 #include "inet/common/packet/Packet.h"
 #include "inet/networklayer/common/FragmentationTag_m.h"
 #include "inet/networklayer/common/L3AddressResolver.h"
+#include "inet/networklayer/common/HopLimitTag_m.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
 
 
@@ -56,6 +57,9 @@ void DiscoveryApp::initialize(int stage)
         myIPAddress = Ipv4Address::UNSPECIFIED_ADDRESS;
         WATCH(numSent);
         WATCH(numReceived);
+
+        WATCH_MAP(state_map);
+        WATCH_MAP(data_map);
 
         myHash = calculate_state_vector_hash();
 
@@ -126,8 +130,10 @@ L3Address DiscoveryApp::chooseDestAddr()
 
 void DiscoveryApp::sendPacket()
 {
+    generateRandomNewService(); //TO-DO remove
+
     std::ostringstream str;
-    str << packetName << "-" << numSent;
+    str << packetName << "-Check-" << numSent;
     Packet *packet = new Packet(str.str().c_str());
     if (dontFragment)
         packet->addTag<FragmentationReq>()->setDontFragment(true);
@@ -140,6 +146,8 @@ void DiscoveryApp::sendPacket()
 
     //payload->setChunkLength(B(par("messageLength")));
     payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint32_t)));
+
+    payload->addTag<HopLimitReq>()->setHopLimit(1);
 
     //payload->setHash(std::hash<std::string>{}(state_vector_string()));
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
@@ -262,6 +270,8 @@ void DiscoveryApp::refreshDisplay() const
 
 void DiscoveryApp::processPacket(Packet *pk)
 {
+    printf("START - DiscoveryApp::processPacket \n");fflush(stdout);
+
     emit(packetReceivedSignal, pk);
     EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
 
@@ -275,26 +285,56 @@ void DiscoveryApp::processPacket(Packet *pk)
         EV_INFO << "Received packet form ME!!!! : " << remoteAddress << ":" << srcPort << endl;
     }
 
+    //EV_INFO << "RECEIVED: " << pk->getClassName() << " - " << pk->getName() << " - " << pk->getClassAndFullName();
+    //std::stringstream ccc;
+    //ccc << "RECEIVED: " << pk->getClassName() << "|" << pk->getName() << "|" << pk->getClassAndFullName() << "|" << pk->getDisplayString() << "|" << pk->;
 
-    const auto& appmsg_check = pk->peekDataAt<SyncCheckPacket>(B(0), B(pk->getByteLength()));
-    if (appmsg_check) {
-        manageSyncMessage(appmsg_check, remoteAddress);
+    //printf("%s\n", ccc.str().c_str());fflush(stdout);
+
+    //check_and_cast(p)
+    std::string sName = std::string(pk->getName());
+    if (sName.find("Check") != std::string::npos) {
+        const auto& appmsg_check = pk->peekDataAt<SyncCheckPacket>(B(0), B(pk->getByteLength()));
+        if (appmsg_check) {
+            manageSyncMessage(appmsg_check, remoteAddress);
+        }
     }
-    else {
+    else if (sName.find("Interest") != std::string::npos) {
         const auto& appmsg_interest = pk->peekDataAt<SyncInterestPacket>(B(0), B(pk->getByteLength()));
         if (appmsg_interest) {
             manageSyncInterestMessage(appmsg_interest, remoteAddress);
         }
-        else {
-            const auto& appmsg_request = pk->peekDataAt<SyncRequestPacket>(B(0), B(pk->getByteLength()));
-            if (appmsg_request) {
-                manageSyncRequestMessage(appmsg_request, remoteAddress);
-            }
-            else {
-                throw cRuntimeError("Message (%s)%s is not a valid packet", pk->getClassName(), pk->getName());
-            }
+    }
+    else if (sName.find("Request") != std::string::npos) {
+        const auto& appmsg_request = pk->peekDataAt<SyncRequestPacket>(B(0), B(pk->getByteLength()));
+        if (appmsg_request) {
+            manageSyncRequestMessage(appmsg_request, remoteAddress);
         }
     }
+    else {
+        throw cRuntimeError("Message (%s)%s is not a valid packet", pk->getClassName(), pk->getName());
+    }
+
+
+//    const auto& appmsg_check = pk->peekDataAt<SyncCheckPacket>(B(0), B(pk->getByteLength()));
+//    if (appmsg_check) {
+//        manageSyncMessage(appmsg_check, remoteAddress);
+//    }
+//    else {
+//        const auto& appmsg_interest = pk->peekDataAt<SyncInterestPacket>(B(0), B(pk->getByteLength()));
+//        if (appmsg_interest) {
+//            manageSyncInterestMessage(appmsg_interest, remoteAddress);
+//        }
+//        else {
+//            const auto& appmsg_request = pk->peekDataAt<SyncRequestPacket>(B(0), B(pk->getByteLength()));
+//            if (appmsg_request) {
+//                manageSyncRequestMessage(appmsg_request, remoteAddress);
+//            }
+//            else {
+//                throw cRuntimeError("Message (%s)%s is not a valid packet", pk->getClassName(), pk->getName());
+//            }
+//        }
+//    }
 
     //if (!appmsg)
     //    throw cRuntimeError("Message (%s)%s is not a SyncCheckPacket -- probably wrong client app, or wrong setting of UDP's parameters", pk->getClassName(), pk->getName());
@@ -303,7 +343,11 @@ void DiscoveryApp::processPacket(Packet *pk)
 
 
     delete pk;
-    numReceived++;
+    if (remoteAddress != Ipv4Address::LOOPBACK_ADDRESS){
+        numReceived++;
+    }
+
+    printf("END - DiscoveryApp::processPacket \n");fflush(stdout);
 }
 
 void DiscoveryApp::handleStartOperation(LifecycleOperation *operation)
@@ -366,7 +410,7 @@ void DiscoveryApp::manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Addres
 
     //check message if different hashes
     if (rcvMsg->getHash() != myHash) {
-        //TO-DO
+        sendSyncInterestPacket(rcdAddr);
     }
 }
 
@@ -400,6 +444,8 @@ void DiscoveryApp::forwardSyncCheck(Ptr<const SyncCheckPacket> rcvMsg) {
     //payload->setChunkLength(B(par("messageLength")));
     payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint32_t)));
 
+    payload->addTag<HopLimitReq>()->setHopLimit(1);
+
     //payload->setHash(std::hash<std::string>{}(state_vector_string()));
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
     packet->insertAtBack(payload);
@@ -415,11 +461,13 @@ void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMs
 
 
     //chekc if need to forward
-    if ((rcvMsg->getTtl() > 1) && checkInterestForward(rcvMsg, rcdAddr)) {
+    /*if ((rcvMsg->getTtl() > 1) && checkInterestForward(rcvMsg, rcdAddr)) {
         forwardSyncInterest(rcvMsg);
 
         labelInterestForward(rcvMsg);
-    }
+    }*/
+
+    return;
 
     //check message if different hashes
     //TO-DO
@@ -431,7 +479,7 @@ void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMs
             worse.push_back(std::make_pair(rcvMsg->getSv_addr(i), state_map[rcvMsg->getSv_addr(i)].second));
         }
         else if ( (state_map.count(rcvMsg->getSv_addr(i)) != 0 ) && (rcvMsg->getSv_counter(i) < state_map[rcvMsg->getSv_addr(i)].second) ){
-            better.push_back(std::make_touple(
+            better.push_back(std::make_tuple(
                     rcvMsg->getSv_addr(i),
                     std::get<1>(data_map[rcvMsg->getSv_addr(i)]),
                     std::get<2>(data_map[rcvMsg->getSv_addr(i)])));
@@ -522,9 +570,21 @@ void DiscoveryApp::addNewService(Service newService){
 
 }
 
+void DiscoveryApp::generateRandomNewService(void){
+    if (dblrand() < 0.1) {
+        Service newS;
+
+        newS.id = rand();
+        //newS.description = std::string("NewService-" + simTime().str()).c_str();
+        strcpy(newS.description, std::string("NewService-" + simTime().str()).c_str());
+
+        addNewService(newS);
+    }
+}
 
 
-void DiscoveryApp::sendSyncInterestPacket()
+
+void DiscoveryApp::sendSyncInterestPacket(L3Address dest)
 {
     std::ostringstream str;
     str << packetName << "-Interest-" << numInterestSent;
@@ -553,7 +613,7 @@ void DiscoveryApp::sendSyncInterestPacket()
     //payload->setHash(std::hash<std::string>{}(state_vector_string()));
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
     packet->insertAtBack(payload);
-    L3Address destAddr = Ipv4Address::ALLONES_ADDRESS;
+    L3Address destAddr = dest; //Ipv4Address::ALLONES_ADDRESS;
     emit(packetSentSignal, packet);
     socket.sendTo(packet, destAddr, destPort);
     numInterestSent++;

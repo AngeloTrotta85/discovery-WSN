@@ -22,6 +22,7 @@ package discoverywsn.simulations.basic_test;
 
 import inet.networklayer.configurator.ipv4.Ipv4NetworkConfigurator;
 import inet.node.inet.AdhocHost;
+import inet.node.aodv.AodvRouter;
 import inet.physicallayer.wireless.ieee80211.packetlevel.Ieee80211ScalarRadioMedium;
 import inet.visualizer.contract.IIntegratedVisualizer;
 
@@ -44,7 +45,8 @@ network Basic_test
             parameters:
                 @display("p=100,200;is=s");
         }
-        host[numHosts]: AdhocHost {
+        host[numHosts]: AodvRouter {
+        // host[numHosts]: AdhocHost {
             parameters:
                 @display("r=,,#707070;p=300,200");
         }

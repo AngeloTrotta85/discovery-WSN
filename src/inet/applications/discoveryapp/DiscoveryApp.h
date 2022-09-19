@@ -57,7 +57,46 @@ public:
     void add_service(Service s2add){
         list_services.push_back(s2add);
     }
+
+    //friend std::ostream& operator<<(std::ostream& os, const Services& ss);
+
+    /*std::ostream & operator<< (std::ostream &out, Services const &ss) {
+        for (auto& s : ss.list_services){
+            out << "[" << s.id << "] - (" << s.description << ")";
+        }
+        return out;
+    }*/
 };
+
+inline std::ostream& operator<<(std::ostream& os, const Services& ss)
+{
+    os << "}";
+    for (auto& s : ss.list_services){
+        os << "[" << s.id << "]-(" << s.description << ") ";
+    }
+    os << "}";
+    return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const std::pair<L3Address, unsigned int>& pp)
+{
+    os << "<" << pp.first << "|" << pp.second << ">";
+    return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const std::tuple<L3Address, unsigned int, Services>& pp)
+{
+    os << "<" << std::get<0>(pp) << "|" << std::get<1>(pp) << "|" << std::get<2>(pp) << ">";
+    return os;
+}
+
+//std::ostream& operator<<(std::ostream& os, const Services& ss)
+//{
+//    for (auto& s : ss.list_services){
+//        os << "[" << s.id << "] - (" << s.description << ")";
+//    }
+//    return os;
+//}
 
 class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, public UdpSocket::ICallback
 {
@@ -94,6 +133,7 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     std::map<L3Address, int> forward_sync_interest_map;
 
     int numInterestSent = 0;
+    int numInterestReceived = 0;
 
     std::size_t myHash;
 
@@ -139,8 +179,9 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     void manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr);
     void manageSyncRequestMessage(Ptr<const SyncRequestPacket> rcvMsg, L3Address rcdAddr);
 
-    void sendSyncInterestPacket();
+    void sendSyncInterestPacket(L3Address dest);
 
+    void generateRandomNewService(void);
     void addNewService(Service newService);
 
 public:
