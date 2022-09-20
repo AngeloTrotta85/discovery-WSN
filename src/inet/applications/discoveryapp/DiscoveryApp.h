@@ -24,6 +24,7 @@
 #include "SyncCheckPacket_m.h"
 #include "SyncInterestPacket_m.h"
 #include "SyncRequestPacket_m.h"
+#include "SyncBetterPacket_m.h"
 
 #include "inet/applications/base/ApplicationBase.h"
 #include "inet/common/clock/ClockUserModuleMixin.h"
@@ -134,8 +135,17 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     std::map<L3Address, int> forward_sync_check_map;
     std::map<L3Address, int> forward_sync_interest_map;
 
+    int numCheckSent = 0;
+    int numCheckReceived = 0;
+
     int numInterestSent = 0;
     int numInterestReceived = 0;
+
+    int numRequestSent = 0;
+    int numRequestReceived = 0;
+
+    int numBetterSent = 0;
+    int numBetterReceived = 0;
 
     std::size_t myHash;
 
@@ -179,10 +189,13 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     //message managers
     void manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr);
     void manageSyncInterestMessage_old(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr);
-    void manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr);
+    void manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcvAddr);
     void manageSyncRequestMessage(Ptr<const SyncRequestPacket> rcvMsg, L3Address rcdAddr);
+    void manageSyncBetterMessage(Ptr<const SyncBetterPacket> rcvMsg, L3Address rcdAddr);
 
     void sendSyncInterestPacket(L3Address dest);
+    void sendSyncRequestPacket(L3Address dest, std::list<std::pair<L3Address, unsigned int>> &wl);
+    void sendSyncBetterPacket(L3Address dest, std::list<std::tuple<L3Address, unsigned int, Services>> &bl);
 
     void generateRandomNewService(void);
     void addNewService(Service newService);

@@ -18,7 +18,6 @@ cplusplus {{
 #include <list>
 #include "DiscoveryApp.h"
 
-class Services;
 }}
 
 import inet.common.INETDefs;
@@ -27,19 +26,25 @@ import inet.networklayer.common.L3Address;
 
 namespace inet;
 
+cplusplus {{
+    
+class Services;
+
+}}
+
 //
 // Generic application packet
 //
 // TODO rename to ApplicationHeader and remove ByteCountChunk from ApplicationHeaderSerializer
 class SyncBetterPacket extends FieldsChunk
 {
-    //L3Address sv_addr[];
-    //unsigned int sv_counter[];
-    //Services sv_service[];
+    L3Address srcAddr;
+    uint32_t sequenceNumber;
+    uint8_t ttl;
 }
 
 cplusplus(SyncBetterPacket) {{
     public:
     	//std::list<Service> services;
-    	std::list<std::tuple<unsigned int, unsigned int, Services>> msg_data_vector;
+    	std::list<std::tuple<L3Address, unsigned int, Services>> msg_data_vector;
 }}
