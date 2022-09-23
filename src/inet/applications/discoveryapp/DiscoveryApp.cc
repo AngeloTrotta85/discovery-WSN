@@ -156,6 +156,8 @@ void DiscoveryApp::sendPacket()
     emit(packetSentSignal, packet);
     socket.sendTo(packet, destAddr, destPort);
     numSent++;
+
+    numCheckSent++;
 }
 
 void DiscoveryApp::processStart()
@@ -312,6 +314,12 @@ void DiscoveryApp::processPacket(Packet *pk)
                 manageSyncRequestMessage(appmsg_request, remoteAddress);
             }
         }
+        else if (sName.find("Better") != std::string::npos) {
+            const auto& appmsg_better = pk->peekDataAt<SyncBetterPacket>(B(0), B(pk->getByteLength()));
+            if (appmsg_better) {
+                manageSyncBetterMessage(appmsg_better, remoteAddress);
+            }
+        }
         else {
             throw cRuntimeError("Message (%s)%s is not a valid packet", pk->getClassName(), pk->getName());
         }
@@ -402,6 +410,7 @@ uint64_t DiscoveryApp::calculate_state_vector_hash() {
 void DiscoveryApp::manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr) {
 
     //EV_INFO << "Received HASH: " << rcvMsg->getHash() << endl;
+    numCheckReceived++;
 
     //chekc if need to forward
     if ((rcvMsg->getTtl() > 1) && checkForward(rcvMsg, rcdAddr)) {
@@ -410,10 +419,17 @@ void DiscoveryApp::manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Addres
         labelForward(rcvMsg);
     }
 
-    //check message if different hashes
-    if (rcvMsg->getHash() != myHash) {
-        sendSyncInterestPacket(rcdAddr);
+    if (    (max_saw_sync_check_map.count(rcvMsg->getSrcAddr()) == 0) ||
+            (max_saw_sync_check_map[rcvMsg->getSrcAddr()] < rcvMsg->getSequenceNumber())) {
+        max_saw_sync_check_map[rcvMsg->getSrcAddr()] = rcvMsg->getSequenceNumber();
+
+        //check message if different hashes
+        if (rcvMsg->getHash() != myHash) {
+            sendSyncInterestPacket(rcdAddr);
+        }
     }
+
+
 }
 
 bool DiscoveryApp::checkForward(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr) {
@@ -432,7 +448,7 @@ void DiscoveryApp::labelForward(Ptr<const SyncCheckPacket> rcvMsg) {
 void DiscoveryApp::forwardSyncCheck(Ptr<const SyncCheckPacket> rcvMsg) {
 
     std::ostringstream str;
-    str << packetName << "- FWD CHECK -" << rcvMsg->getSequenceNumber();
+    str << packetName << "-Check-fwd-" << rcvMsg->getSequenceNumber();
     Packet *packet = new Packet(str.str().c_str());
     if (dontFragment)
         packet->addTag<FragmentationReq>()->setDontFragment(true);
@@ -455,6 +471,7 @@ void DiscoveryApp::forwardSyncCheck(Ptr<const SyncCheckPacket> rcvMsg) {
     emit(packetSentSignal, packet);
     socket.sendTo(packet, destAddr, destPort);
     //numSent++;
+    numCheckForwarded++;
 }
 
 void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcvAddr) {

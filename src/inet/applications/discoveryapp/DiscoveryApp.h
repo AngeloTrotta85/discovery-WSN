@@ -114,6 +114,8 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     const char *packetName = nullptr;
     int dmax;
 
+    bool ;
+
     // state
     UdpSocket socket;
     ClockEvent *selfMsg = nullptr;
@@ -135,8 +137,11 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     std::map<L3Address, int> forward_sync_check_map;
     std::map<L3Address, int> forward_sync_interest_map;
 
+    std::map<L3Address, int> max_saw_sync_check_map;
+
     int numCheckSent = 0;
     int numCheckReceived = 0;
+    int numCheckForwarded = 0;
 
     int numInterestSent = 0;
     int numInterestReceived = 0;

@@ -40,6 +40,7 @@ simple DiscoveryApp like IApp
     parameters:
         int dmax = default(1);
         int initialServices = default (1);
+        bool broadcastInterest = default (false);
         
         string interfaceTableModule;   // The path to the InterfaceTable module
         string clockModule = default(""); // relative path of a module that implements IClock; optional
