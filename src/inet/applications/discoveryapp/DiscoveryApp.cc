@@ -36,6 +36,7 @@
 #include <errno.h>
 #include <omnetpp/checkandcast.h>
 
+
 using omnetpp::check_and_cast;
 
 namespace inet {
@@ -54,16 +55,23 @@ void DiscoveryApp::initialize(int stage)
     if (stage == INITSTAGE_LOCAL) {
         numSent = 0;
         numReceived = 0;
-        myIPAddress = Ipv4Address::UNSPECIFIED_ADDRESS;
+        myIPAddress = Ipv4Address::UNSPECIFIED_ADDRESS;//L3AddressResolver().resolve(this->getParentModule()->getFullName()).toIpv4();
         WATCH(numSent);
         WATCH(numReceived);
 
+        WATCH(myIPAddress);
+
         WATCH_MAP(state_map);
         WATCH_MAP(data_map);
+        WATCH_MAP(service_creation_time);
+        WATCH_MAP(service_registration_time);
 
         myHash = calculate_state_vector_hash();
+        myHostAddress = this->getParentModule()->getIndex();
 
         dmax = par("dmax");
+        broadcastInterest = par("broadcastInterest");
+        numServiceInit = par("numServices");
 
         localPort = par("localPort");
         destPort = par("destPort");
@@ -74,6 +82,17 @@ void DiscoveryApp::initialize(int stage)
         if (stopTime >= CLOCKTIME_ZERO && stopTime < startTime)
             throw cRuntimeError("Invalid startTime/stopTime parameters");
         selfMsg = new ClockEvent("sendTimer");
+
+        selfTimer100ms = new ClockEvent("timer100ms");
+
+
+
+    }
+    else if (stage == INITSTAGE_LAST) {
+        ///TEST
+
+        myIPAddress = L3AddressResolver().resolve(this->getParentModule()->getFullName()).toIpv4();
+        generateInitNewService(numServiceInit);
     }
 }
 
@@ -130,7 +149,9 @@ L3Address DiscoveryApp::chooseDestAddr()
 
 void DiscoveryApp::sendPacket()
 {
-    generateRandomNewService(); //TO-DO remove
+    if (simTime() < 100) {
+        generateRandomNewService(); //TODO remove
+    }
 
     std::ostringstream str;
     str << packetName << "-Check-" << numSent;
@@ -197,6 +218,9 @@ void DiscoveryApp::processStart()
         }
     }*/
     processSend();
+
+    clocktime_t d = Simtime(100, SIMTIME_MS);
+    scheduleClockEventAfter(d, selfTimer100ms);
 }
 
 void DiscoveryApp::processSend()
@@ -221,8 +245,9 @@ void DiscoveryApp::processStop()
 void DiscoveryApp::handleMessageWhenUp(cMessage *msg)
 {
     if (msg->isSelfMessage()) {
-        ASSERT(msg == selfMsg);
-        switch (selfMsg->getKind()) {
+        if (msg == selfMsg) {
+            ASSERT(msg == selfMsg);
+            switch (selfMsg->getKind()) {
             case START:
                 processStart();
                 break;
@@ -237,6 +262,10 @@ void DiscoveryApp::handleMessageWhenUp(cMessage *msg)
 
             default:
                 throw cRuntimeError("Invalid kind %d in self message", (int)selfMsg->getKind());
+            }
+        }
+        else if (msg == selfTimer100ms) {
+            execute100ms();
         }
     }
     else
@@ -270,6 +299,13 @@ void DiscoveryApp::refreshDisplay() const
     getDisplayString().setTagArg("t", 0, buf);
 }
 
+void DiscoveryApp::execute100ms (void) {
+    if (myHostAddress == 0) {
+
+    }
+}
+
+
 void DiscoveryApp::processPacket(Packet *pk)
 {
     if (printDebug) { printf("START - DiscoveryApp::processPacket \n");fflush(stdout); }
@@ -279,10 +315,10 @@ void DiscoveryApp::processPacket(Packet *pk)
 
     // determine its source address/port
     L3Address remoteAddress = pk->getTag<L3AddressInd>()->getSrcAddress();
-    L3Address myAddress = pk->getTag<L3AddressInd>()->getDestAddress();
+    L3Address destAddress = pk->getTag<L3AddressInd>()->getDestAddress();
     int srcPort = pk->getTag<L4PortInd>()->getSrcPort();
 
-    EV_INFO << "Received packet form IP: " << remoteAddress << ":" << srcPort << " with destination: " << myAddress << endl;
+    EV_INFO << myIPAddress << " Received packet from IP: " << remoteAddress << ":" << srcPort << " with destination: " << destAddress << endl;
     if (remoteAddress == Ipv4Address::LOOPBACK_ADDRESS){
         EV_INFO << "Received packet form ME!!!! : " << remoteAddress << ":" << srcPort << endl;
     }
@@ -304,9 +340,9 @@ void DiscoveryApp::processPacket(Packet *pk)
         }
         else if (sName.find("Interest") != std::string::npos) {
             const auto& appmsg_interest = pk->peekDataAt<SyncInterestPacket>(B(0), B(pk->getByteLength()));
-            //if (appmsg_interest) {
-            //    manageSyncInterestMessage(appmsg_interest, remoteAddress);
-            //}
+            if (appmsg_interest) {
+                manageSyncInterestMessage(appmsg_interest, remoteAddress);
+            }
         }
         else if (sName.find("Request") != std::string::npos) {
             const auto& appmsg_request = pk->peekDataAt<SyncRequestPacket>(B(0), B(pk->getByteLength()));
@@ -317,7 +353,7 @@ void DiscoveryApp::processPacket(Packet *pk)
         else if (sName.find("Better") != std::string::npos) {
             const auto& appmsg_better = pk->peekDataAt<SyncBetterPacket>(B(0), B(pk->getByteLength()));
             if (appmsg_better) {
-                manageSyncBetterMessage(appmsg_better, remoteAddress);
+                manageSyncBetterMessage(appmsg_better, remoteAddress, destAddress);
             }
         }
         else {
@@ -412,6 +448,8 @@ void DiscoveryApp::manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Addres
     //EV_INFO << "Received HASH: " << rcvMsg->getHash() << endl;
     numCheckReceived++;
 
+    EV_INFO << "Received SYNC-CHECK packet from: " << rcvMsg->getSrcAddr() << " with hash: " << rcvMsg->getHash() << endl;
+
     //chekc if need to forward
     if ((rcvMsg->getTtl() > 1) && checkForward(rcvMsg, rcdAddr)) {
         forwardSyncCheck(rcvMsg);
@@ -422,6 +460,8 @@ void DiscoveryApp::manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Addres
     if (    (max_saw_sync_check_map.count(rcvMsg->getSrcAddr()) == 0) ||
             (max_saw_sync_check_map[rcvMsg->getSrcAddr()] < rcvMsg->getSequenceNumber())) {
         max_saw_sync_check_map[rcvMsg->getSrcAddr()] = rcvMsg->getSequenceNumber();
+
+        EV_INFO << "Managing SYNC-CHECK. My HASH is: " << myHash << endl;
 
         //check message if different hashes
         if (rcvMsg->getHash() != myHash) {
@@ -481,46 +521,121 @@ void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMs
     std::list<std::pair<L3Address, unsigned int>> worse;
     std::list<std::tuple<L3Address, unsigned int, Services>> better;
 
-    for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
-        if (printDebug) { printf("C0 I%d - DiscoveryApp::manageSyncInterestMessage \n", i);fflush(stdout); }
+    EV_INFO << "Received SYNC-INTEREST packet from: " << rcvMsg->getSrcAddr() << " with: ";
+    for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++) {
+        EV_INFO << "(" << rcvMsg->getSv_addr(i) << "|" << rcvMsg->getSv_counter(i) << ") ";
+    }
+    EV_INFO << endl;
 
-        if (state_map.count(rcvMsg->getSv_addr(i)) == 0 ) {
-            if (printDebug) { printf("C1 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
-            std::pair<L3Address, unsigned int> np;
-            np.first = rcvMsg->getSv_addr(i);
-            np.second = rcvMsg->getSv_counter(i);
-            worse.push_back(np);
-        }
-        else {
-            if (rcvMsg->getSv_counter(i) > state_map[rcvMsg->getSv_addr(i)].second) {
-                if (printDebug) { printf("C2 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+    EV_INFO << "My state_map is: ";
+    for (auto& sv : state_map) {
+        EV_INFO << "(" << sv.second << ") ";
+    }
+    EV_INFO << endl;
+
+    numInterestReceived++;
+
+    //chekc if need to forward
+    if (    broadcastInterest &&
+            (rcvMsg->getTtl() > 1) &&
+            checkInterestForward(rcvMsg, rcvAddr)) {
+        forwardSyncInterest(rcvMsg);
+
+        labelInterestForward(rcvMsg);
+    }
+
+    if (    (max_saw_sync_interest_map.count(rcvMsg->getSrcAddr()) == 0) ||
+                (max_saw_sync_interest_map[rcvMsg->getSrcAddr()] < rcvMsg->getSequenceNumber())) {
+        max_saw_sync_interest_map[rcvMsg->getSrcAddr()] = rcvMsg->getSequenceNumber();
+
+        EV_INFO << "Managing SYNC-INTEREST" << endl;
+
+        for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
+            if (    (state_map.count(rcvMsg->getSv_addr(i)) == 0 ) ||
+                    (rcvMsg->getSv_counter(i) > state_map[rcvMsg->getSv_addr(i)].second) ){
                 std::pair<L3Address, unsigned int> np;
                 np.first = rcvMsg->getSv_addr(i);
                 np.second = rcvMsg->getSv_counter(i);
-
                 worse.push_back(np);
             }
-            else if (rcvMsg->getSv_counter(i) < state_map[rcvMsg->getSv_addr(i)].second){
-                if (printDebug) { printf("C3 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+        }
+
+        for (auto& dm : data_map){
+            bool isbetter = true;
+            for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
+                if ((rcvMsg->getSv_addr(i) == std::get<0>(dm.second)) && (rcvMsg->getSv_counter(i) >= std::get<1>(dm.second))){
+                    isbetter = false;
+                }
+            }
+
+            if (isbetter) {
                 std::tuple<L3Address, unsigned int, Services> nt;
-                std::get<0>(nt) = rcvMsg->getSv_addr(i);
-                std::get<1>(nt) = std::get<1>(data_map[rcvMsg->getSv_addr(i)]);
+                std::get<0>(nt) = std::get<0>(dm.second);// rcvMsg->getSv_addr(i);
+                std::get<1>(nt) = std::get<1>(dm.second);// std::get<1>(data_map[rcvMsg->getSv_addr(i)]);
                 std::get<2>(nt) = Services();
-                for (auto& l : std::get<2>(data_map[rcvMsg->getSv_addr(i)]).list_services){
+                for (auto& l : std::get<2>(dm.second).list_services){
                     std::get<2>(nt).add_service(l);
                 }
 
                 better.push_back(nt);
+
             }
         }
-    }
 
-    if (worse.size() > 0) {
-        sendSyncRequestPacket(rcvMsg->getSrcAddr(), worse);
-    }
+        /*
+        for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
+            if (printDebug) { printf("C0 I%d - DiscoveryApp::manageSyncInterestMessage \n", i);fflush(stdout); }
 
-    if (better.size() > 0) {
-        sendSyncBetterPacket(rcvMsg->getSrcAddr(), better);
+            if (state_map.count(rcvMsg->getSv_addr(i)) == 0 ) {
+                if (printDebug) { printf("C1 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+                std::pair<L3Address, unsigned int> np;
+                np.first = rcvMsg->getSv_addr(i);
+                np.second = rcvMsg->getSv_counter(i);
+                worse.push_back(np);
+            }
+            else {
+                if (rcvMsg->getSv_counter(i) > state_map[rcvMsg->getSv_addr(i)].second) {
+                    if (printDebug) { printf("C2 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+                    std::pair<L3Address, unsigned int> np;
+                    np.first = rcvMsg->getSv_addr(i);
+                    np.second = rcvMsg->getSv_counter(i);
+
+                    worse.push_back(np);
+                }
+                else if (rcvMsg->getSv_counter(i) < state_map[rcvMsg->getSv_addr(i)].second){
+                    if (printDebug) { printf("C3 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
+                    std::tuple<L3Address, unsigned int, Services> nt;
+                    std::get<0>(nt) = rcvMsg->getSv_addr(i);
+                    std::get<1>(nt) = std::get<1>(data_map[rcvMsg->getSv_addr(i)]);
+                    std::get<2>(nt) = Services();
+                    for (auto& l : std::get<2>(data_map[rcvMsg->getSv_addr(i)]).list_services){
+                        std::get<2>(nt).add_service(l);
+                    }
+
+                    better.push_back(nt);
+                }
+            }
+        }
+        */
+
+        EV_INFO << "The WORSE are " << worse.size() << ": ";
+        for (auto& sv : worse) {
+            EV_INFO << "(" << sv << ") ";
+        }
+        EV_INFO << endl;
+        if (worse.size() > 0) {
+            sendSyncRequestPacket(rcvMsg->getSrcAddr(), worse);
+        }
+
+
+        EV_INFO << "The BETTER are " << better.size() << ": ";
+        for (auto& sv : better) {
+            EV_INFO << "(" << sv << ") ";
+        }
+        EV_INFO << endl;
+        if (better.size() > 0) {
+            sendSyncBetterPacket(rcvMsg->getSrcAddr(), better);
+        }
     }
 
     if (printDebug) { printf("END - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
@@ -536,7 +651,7 @@ void DiscoveryApp::manageSyncInterestMessage_old(Ptr<const SyncInterestPacket> r
 
     if (printDebug) { printf("C0 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
 
-    printf("[%s] - Received from %s \n", myIPAddress.str().c_str(), rcdAddr.str().c_str());
+    //printf("[%s] - Received from %s \n", myIPAddress.str().c_str(), rcdAddr.str().c_str());
 
     //chekc if need to forward
     /*if ((rcvMsg->getTtl() > 1) && checkInterestForward(rcvMsg, rcdAddr)) {
@@ -552,18 +667,18 @@ void DiscoveryApp::manageSyncInterestMessage_old(Ptr<const SyncInterestPacket> r
     std::list<std::pair<L3Address, unsigned int>> worse;
     std::list<std::tuple<L3Address, unsigned int, Services>> better;
 
-    for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
+    /*for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
         printf("rcvMsg->getSv_addr(i): %s \n", rcvMsg->getSv_addr(i).str().c_str());
     }
     for (int i = 0; i < rcvMsg->getSv_counterArraySize(); i++){
         printf("rcvMsg->getSv_counter(i): %u \n", rcvMsg->getSv_counter(i));
-    }
+    }*/
 
     for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
 
         if (printDebug) { printf("C0 I%d - DiscoveryApp::manageSyncInterestMessage \n", i);fflush(stdout); }
 
-        printf("rcvMsg->getSv_addr(i): %s \n", rcvMsg->getSv_addr(i).str().c_str());fflush(stdout);
+        //printf("rcvMsg->getSv_addr(i): %s \n", rcvMsg->getSv_addr(i).str().c_str());fflush(stdout);
 
         if (state_map.count(rcvMsg->getSv_addr(i)) == 0 ) {
             if (printDebug) { printf("C1 - DiscoveryApp::manageSyncInterestMessage \n");fflush(stdout); }
@@ -648,7 +763,7 @@ void DiscoveryApp::forwardSyncInterest(Ptr<const SyncInterestPacket> rcvMsg) {
     L3Address destAddr = Ipv4Address::ALLONES_ADDRESS;
     emit(packetSentSignal, packet);
     socket.sendTo(packet, destAddr, destPort);
-    //numInterestSent++;
+    numInterestForwarded++;
 }
 
 
@@ -680,6 +795,13 @@ void DiscoveryApp::sendSyncRequestPacket(L3Address dest, std::list<std::pair<L3A
             i++;
         }
 
+        EV_INFO << "Sending REQUEST: ";
+        for (int j = 0; j < payload->getSv_counterArraySize(); j++) {
+            EV_INFO << "(" << payload->getSv_addr(j) << "-" << payload->getSv_counter(j) << ") ";
+        }
+        EV_INFO << endl;
+
+
         //payload->setChunkLength(B(par("messageLength")));
         payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t))) ));
 
@@ -687,6 +809,9 @@ void DiscoveryApp::sendSyncRequestPacket(L3Address dest, std::list<std::pair<L3A
         payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
         packet->insertAtBack(payload);
         L3Address destAddr = dest; //Ipv4Address::ALLONES_ADDRESS;
+
+        EV_INFO << "Sending CHECK-REQUEST to : " << destAddr << endl;
+
         emit(packetSentSignal, packet);
         socket.sendTo(packet, destAddr, destPort);
         numRequestSent++;
@@ -698,6 +823,18 @@ void DiscoveryApp::manageSyncRequestMessage(Ptr<const SyncRequestPacket> rcvMsg,
     //EV_INFO << "Received msg_data_vector: " << rcvMsg->msg_data_vector.size() << endl;
 
     std::list<std::tuple<L3Address, unsigned int, Services>> better;
+
+    EV_INFO << "Received SYNC-REQUEST packet from: " << rcvMsg->getSrcAddr() << " with: ";
+    for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++) {
+        EV_INFO << "(" << rcvMsg->getSv_addr(i) << "|" << rcvMsg->getSv_counter(i) << ") ";
+    }
+    EV_INFO << endl;
+
+    EV_INFO << "My state_map is: ";
+    for (auto& sv : state_map) {
+        EV_INFO << "(" << sv.second << ") ";
+    }
+    EV_INFO << endl;
 
     for (int i = 0; i < rcvMsg->getSv_addrArraySize(); i++){
 
@@ -718,6 +855,7 @@ void DiscoveryApp::manageSyncRequestMessage(Ptr<const SyncRequestPacket> rcvMsg,
         }
     }
 
+    EV_INFO << "Sending BETTER? list size: " << better.size() << endl;
 
     if (better.size() > 0) {
         sendSyncBetterPacket(rcvMsg->getSrcAddr(), better);
@@ -746,6 +884,13 @@ void DiscoveryApp::sendSyncBetterPacket(L3Address dest, std::list<std::tuple<L3A
         services_size += sizeof(uint32_t) + sizeof(uint32_t) + (std::get<2>(blel).list_services.size() * (sizeof(uint32_t) + 128));
     }
 
+    EV_INFO << "Sending BETTER: ";
+    for (auto& bbb : payload->msg_data_vector) {
+        EV_INFO << "(" << bbb << ") ";
+    }
+    EV_INFO << endl;
+
+
     //payload->setChunkLength(B(par("messageLength")));
     payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + services_size ));
 
@@ -753,37 +898,120 @@ void DiscoveryApp::sendSyncBetterPacket(L3Address dest, std::list<std::tuple<L3A
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
     packet->insertAtBack(payload);
     L3Address destAddr = dest; //Ipv4Address::ALLONES_ADDRESS;
+
+    EV_INFO << "Sending CHECK-BETTER to : " << destAddr << endl;
+
     emit(packetSentSignal, packet);
     socket.sendTo(packet, destAddr, destPort);
     numBetterSent++;
 
 }
 
-void DiscoveryApp::manageSyncBetterMessage(Ptr<const SyncBetterPacket> rcvMsg, L3Address rcdAddr) {
+void DiscoveryApp::manageSyncBetterMessage(Ptr<const SyncBetterPacket> rcvMsg, L3Address rcdAddr, L3Address destAddr) {
 
-    for(auto& bm : rcvMsg->msg_data_vector) {
+    EV_INFO << "Received SYNC-BETTER packet from: " << rcvMsg->getSrcAddr() << " with: ";
+    for (auto& bbb : rcvMsg->msg_data_vector) {
+        EV_INFO << "(" << bbb << ") ";
+    }
+    EV_INFO << endl;
 
+    //chekc if need to forward
+        if (    (destAddr == Ipv4Address::ALLONES_ADDRESS) &&
+                (rcvMsg->getTtl() > 1) &&
+                checkBetterForward(rcvMsg, rcdAddr)) {
+            forwardSyncBetter(rcvMsg);
 
-        if ((state_map.count(std::get<0>(bm)) == 0) || (std::get<1>(bm) > state_map[std::get<0>(bm)].second)) {
-
-            std::tuple<L3Address, unsigned int, Services> nt;
-            std::get<0>(nt) = std::get<0>(bm);
-            std::get<1>(nt) = std::get<1>(bm);
-            std::get<2>(nt) = Services();
-            for (auto& l : std::get<2>(bm).list_services){
-                std::get<2>(nt).add_service(l);
-            }
-
-            data_map[std::get<0>(bm)] = nt;
-
-            state_map[std::get<0>(bm)] = std::make_pair(std::get<0>(bm), std::get<1>(bm));
+            labelBetterForward(rcvMsg);
         }
 
+        if (    (max_saw_sync_better_map.count(rcvMsg->getSrcAddr()) == 0) ||
+                (max_saw_sync_better_map[rcvMsg->getSrcAddr()] < rcvMsg->getSequenceNumber())) {
+            max_saw_sync_better_map[rcvMsg->getSrcAddr()] = rcvMsg->getSequenceNumber();
+
+            EV_INFO << "Managing SYNC-BETTER" << endl;
+
+            for(auto& bm : rcvMsg->msg_data_vector) {
+
+
+                if ((state_map.count(std::get<0>(bm)) == 0) || (std::get<1>(bm) > state_map[std::get<0>(bm)].second)) {
+
+                    std::tuple<L3Address, unsigned int, Services> nt;
+                    std::get<0>(nt) = std::get<0>(bm);
+                    std::get<1>(nt) = std::get<1>(bm);
+                    std::get<2>(nt) = Services();
+                    for (auto& l : std::get<2>(bm).list_services){
+                        std::get<2>(nt).add_service(l);
+                    }
+
+                    data_map[std::get<0>(bm)] = nt;
+
+                    doSomethingWhenAddService(nt);
+
+                    state_map[std::get<0>(bm)] = std::make_pair(std::get<0>(bm), std::get<1>(bm));
+                }
+
+            }
+
+            EV_INFO << "My new state_map is: " << endl;
+            for (auto& dm : state_map) {
+                EV_INFO << "(" << dm.second << ") " << endl;
+            }
+            EV_INFO << "My new data_map is: " << endl;
+            for (auto& dm : data_map) {
+                EV_INFO << "(" << dm.second << ") " << endl;
+            }
+
+            myHash = calculate_state_vector_hash();
+
+            numBetterReceived++;
+        }
+}
+
+
+
+bool DiscoveryApp::checkBetterForward(Ptr<const SyncBetterPacket> rcvMsg, L3Address rcdAddr) {
+    if (forward_sync_better_map.count(rcvMsg->getSrcAddr()) == 0) {
+        return true;
+    }
+    else{
+        return (rcvMsg->getSequenceNumber() > forward_sync_better_map[rcvMsg->getSrcAddr()]);
+    }
+}
+
+void DiscoveryApp::labelBetterForward(Ptr<const SyncBetterPacket> rcvMsg) {
+    forward_sync_better_map[rcvMsg->getSrcAddr()] = rcvMsg->getSequenceNumber();
+}
+
+void DiscoveryApp::forwardSyncBetter(Ptr<const SyncBetterPacket> rcvMsg) {
+
+    std::ostringstream str;
+    str << packetName << "-BetterFWD-" << rcvMsg->getSequenceNumber();
+    Packet *packet = new Packet(str.str().c_str());
+    if (dontFragment)
+        packet->addTag<FragmentationReq>()->setDontFragment(true);
+    const auto& payload = makeShared<SyncBetterPacket>();
+
+    payload->setSrcAddr(rcvMsg->getSrcAddr());
+    payload->setSequenceNumber(rcvMsg->getSequenceNumber());
+    payload->setTtl(rcvMsg->getTtl() - 1);
+
+    int services_size = 0;
+
+    for (auto& blel : rcvMsg->msg_data_vector){
+        payload->msg_data_vector.push_back(blel);
+        services_size += sizeof(uint32_t) + sizeof(uint32_t) + (std::get<2>(blel).list_services.size() * (sizeof(uint32_t) + 128));
     }
 
-    myHash = calculate_state_vector_hash();
+    //payload->setChunkLength(B(par("messageLength")));
+    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + services_size ));
 
-    numBetterReceived++;
+    //payload->setHash(std::hash<std::string>{}(state_vector_string()));
+    payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
+    packet->insertAtBack(payload);
+    L3Address destAddr = Ipv4Address::ALLONES_ADDRESS;
+    emit(packetSentSignal, packet);
+    socket.sendTo(packet, destAddr, destPort);
+    numBetterForwarded++;
 }
 
 void DiscoveryApp::addNewService(Service newService){
@@ -801,11 +1029,11 @@ void DiscoveryApp::addNewService(Service newService){
             state_map[myL3Address].second = myCounter;
         }
 
-        for (const auto& svel : state_map){
+        /*for (const auto& svel : state_map){
 
             printf("[%s] State_map after adding service %s - %u\n", myL3Address.str().c_str(), svel.second.first.str().c_str(), svel.second.second);
 
-        }
+        }*/
 
         if (data_map.count(myL3Address) == 0) {
             //data_map[myL3Address] = std::make_tuple(myL3Address, myCounter, Services(newService));
@@ -819,21 +1047,83 @@ void DiscoveryApp::addNewService(Service newService){
 
         myHash = calculate_state_vector_hash();
 
-        //TO-DO send BETTER
+        //send BETTER
+        std::list<std::tuple<L3Address, unsigned int, Services>> better;
+
+        std::tuple<L3Address, unsigned int, Services> nt;
+        std::get<0>(nt) = myL3Address;
+        std::get<1>(nt) = myCounter;
+        std::get<2>(nt) = Services();
+        for (auto& l : std::get<2>(data_map[myL3Address]).list_services){
+            std::get<2>(nt).add_service(l);
+        }
+
+        better.push_back(nt);
+
+        sendSyncBetterPacket(Ipv4Address::ALLONES_ADDRESS, better);
     }
 
 }
 
 void DiscoveryApp::generateRandomNewService(void){
-    if (dblrand() < 0.1) {
+    //if (dblrand() < 0.1) {
+    if (false) {
         Service newS;
 
-        newS.id = rand();
+        newS.id = myServiceIDCounter; //rand();
+        newS.active = true;
+        myServiceIDCounter++;
         //newS.description = std::string("NewService-" + simTime().str()).c_str();
         strcpy(newS.description, std::string("NewService-" + simTime().str()).c_str());
 
+        service_creation_time[newS.id] = simTime();
+
         addNewService(newS);
     }
+}
+
+void DiscoveryApp::generateInitNewService(int ns) {
+
+    auto myL3Address = L3Address(myIPAddress);
+
+    for (int i = 0; i < ns; i++) {
+        Service newS;
+
+        newS.id = myServiceIDCounter;
+        newS.active = (dblrand() < 0.5);
+
+        std::stringstream ss;
+        ss << "NewService-" << myHostAddress << "-" << myServiceIDCounter << "-" << simTime();
+
+        //strcpy(newS.description, std::string("NewService-" + std::string(myHostAddress).c_str() + "-" + std::string(myServiceIDCounter).c_str() + "-" + simTime().str()).c_str());
+        strcpy(newS.description, ss.str().c_str());
+
+        myServiceIDCounter++;
+
+
+        // check if I have already at least one service
+        if (state_map.count(myL3Address) == 0) {
+            state_map[myL3Address] = std::make_pair(myL3Address, myCounter);
+        }
+        else{
+            state_map[myL3Address].second = myCounter;
+        }
+
+
+        if (data_map.count(myL3Address) == 0) {
+            //data_map[myL3Address] = std::make_tuple(myL3Address, myCounter, Services(newService));
+            data_map[myL3Address] = std::make_tuple(myL3Address, myCounter, Services());
+            std::get<2>(data_map[myL3Address]).add_service(newS);
+        }
+        else {
+            std::get<1>(data_map[myL3Address]) = myCounter;
+            std::get<2>(data_map[myL3Address]).add_service(newS);
+        }
+
+        service_creation_time[newS.id] = simTime();
+    }
+
+    myHash = calculate_state_vector_hash();
 }
 
 
@@ -855,17 +1145,23 @@ void DiscoveryApp::sendSyncInterestPacket(L3Address dest)
     payload->setSv_counterArraySize(state_map.size());
 
 
-    printf("[%s] - state_map:%d; data_map:%d\n", myIPAddress.str().c_str(), ((int) state_map.size()), ((int) data_map.size()));
+    //printf("[%s] - state_map:%d; data_map:%d\n", myIPAddress.str().c_str(), ((int) state_map.size()), ((int) data_map.size()));
 
     int i = 0;
     for (const auto& svel : state_map){
         payload->setSv_addr(i, svel.second.first);
         payload->setSv_counter(i, svel.second.second);
 
-        printf("[%s] - Sending %s - %u\n", myIPAddress.str().c_str(), payload->getSv_addr(i).str().c_str(), payload->getSv_counter(i));
+        //printf("[%s] - Sending %s - %u\n", myIPAddress.str().c_str(), payload->getSv_addr(i).str().c_str(), payload->getSv_counter(i));
 
         i++;
     }
+
+    EV_INFO << "Sending INTEREST: ";
+    for (int j = 0; j < payload->getSv_counterArraySize(); j++) {
+        EV_INFO << "(" << payload->getSv_addr(j) << "-" << payload->getSv_counter(j) << ") ";
+    }
+    EV_INFO << endl;
 
     //payload->setChunkLength(B(par("messageLength")));
     payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t))) ));
@@ -874,9 +1170,50 @@ void DiscoveryApp::sendSyncInterestPacket(L3Address dest)
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
     packet->insertAtBack(payload);
     L3Address destAddr = dest; //Ipv4Address::ALLONES_ADDRESS;
+    if (broadcastInterest) {
+        destAddr = Ipv4Address::ALLONES_ADDRESS;
+    }
+
+    EV_INFO << "Sending CHECK-INTEREST to : " << destAddr << endl;
+
     emit(packetSentSignal, packet);
     socket.sendTo(packet, destAddr, destPort);
     numInterestSent++;
+}
+
+void DiscoveryApp::doSomethingWhenAddService (std::tuple<L3Address, unsigned int, Services> &nt) {
+
+    printf("%s - %s - doSomethingWhenAddService - START\n", myIPAddress.str().c_str(), simTime().str().c_str());
+
+    for (auto& s : std::get<2>(nt).list_services) {
+        service_owner_t so;
+        so.node_addr = std::get<0>(nt);
+        so.service_id = s.id;
+
+        if(service_registration_time.count(so) == 0) {
+            service_registration_time[so] = simTime();
+
+            //check i I'm the last one
+            int nnodes = this->getParentModule()->getVectorSize();
+            int countUpdate = 0;
+            for (int i = 0; i < nnodes; i++) {
+                //DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getName(), i));
+                DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getParentModule()->getName(), i)->getSubmodule(this->getName(), 0));
+
+                if (app->service_registration_time.count(so) != 0) {
+                    countUpdate++;
+                }
+            }
+
+            printf("%d\n", countUpdate);
+            if (countUpdate == nnodes) {
+                printf("SYNC!!!\n");
+            }
+            fflush(stdout);
+        }
+    }
+
+    printf("%s - doSomethingWhenAddService - END\n", myIPAddress.str().c_str());
 }
 
 } // namespace inet

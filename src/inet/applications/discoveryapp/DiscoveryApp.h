@@ -42,6 +42,7 @@ public:
     ~Service() {};
 
     uint32_t id;
+    bool active;
     char description[128];
 };
 
@@ -71,9 +72,9 @@ public:
 
 inline std::ostream& operator<<(std::ostream& os, const Services& ss)
 {
-    os << "}";
+    os << "{";
     for (auto& s : ss.list_services){
-        os << "[" << s.id << "]-(" << s.description << ") ";
+        os << "[" << s.id << "-" << (s.active ? "A" : "NA") << "]-(" << s.description << ") ";
     }
     os << "}";
     return os;
@@ -91,6 +92,8 @@ inline std::ostream& operator<<(std::ostream& os, const std::tuple<L3Address, un
     return os;
 }
 
+
+
 //std::ostream& operator<<(std::ostream& os, const Services& ss)
 //{
 //    for (auto& s : ss.list_services){
@@ -101,6 +104,36 @@ inline std::ostream& operator<<(std::ostream& os, const std::tuple<L3Address, un
 
 class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, public UdpSocket::ICallback
 {
+public:
+    typedef struct {
+        simtime_t timestamp;
+        unsigned int service_id;
+    } service_time_t;
+
+    typedef struct service_owner {
+        L3Address node_addr;
+        uint32_t service_id;
+    } service_owner_t;
+
+    friend bool operator==(const service_owner_t& a, const service_owner_t& b) {
+        return (a.node_addr == b.node_addr) && (a. service_id == b.service_id);
+    }
+
+    friend bool operator<(const service_owner_t& a, const service_owner_t& b) {
+        return (a.node_addr < b.node_addr) && (a. service_id < b.service_id);
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const service_owner_t& so) {
+        os << "<" << so.node_addr << "|" << so.service_id << ">";
+        return os;
+    }
+
+public:
+    std::map<uint32_t, simtime_t> service_creation_time;
+    std::map<service_owner_t, simtime_t> service_registration_time;
+    Ipv4Address myIPAddress;
+    int myHostAddress;
+
   protected:
     enum SelfMsgKinds { START = 1, SEND, STOP };
 
@@ -114,17 +147,19 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     const char *packetName = nullptr;
     int dmax;
 
-    bool ;
+    bool broadcastInterest = false;
+    int numServiceInit;
 
     // state
     UdpSocket socket;
     ClockEvent *selfMsg = nullptr;
+    ClockEvent *selfTimer100ms = nullptr;
 
     // statistics
     int numSent = 0;
     int numReceived = 0;
 
-    bool printDebug = true;
+    bool printDebug = false;
 
     //State and data LISTS
     //std::list<std::pair<L3Address, unsigned int>> state_vector;
@@ -132,12 +167,16 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     std::map<L3Address, std::pair<L3Address, unsigned int>> state_map;
     std::map<L3Address, std::tuple<L3Address, unsigned int, Services>> data_map;
     unsigned int myCounter = 0;
-    Ipv4Address myIPAddress;
+
+    unsigned int myServiceIDCounter = 0;
 
     std::map<L3Address, int> forward_sync_check_map;
     std::map<L3Address, int> forward_sync_interest_map;
+    std::map<L3Address, int> forward_sync_better_map;
 
     std::map<L3Address, int> max_saw_sync_check_map;
+    std::map<L3Address, int> max_saw_sync_interest_map;
+    std::map<L3Address, int> max_saw_sync_better_map;
 
     int numCheckSent = 0;
     int numCheckReceived = 0;
@@ -145,12 +184,14 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
 
     int numInterestSent = 0;
     int numInterestReceived = 0;
+    int numInterestForwarded = 0;
 
     int numRequestSent = 0;
     int numRequestReceived = 0;
 
     int numBetterSent = 0;
     int numBetterReceived = 0;
+    int numBetterForwarded = 0;
 
     std::size_t myHash;
 
@@ -191,12 +232,16 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
     void labelInterestForward(Ptr<const SyncInterestPacket> rcvMsg);
     void forwardSyncInterest(Ptr<const SyncInterestPacket> rcvMsg);
 
+    bool checkBetterForward(Ptr<const SyncBetterPacket> rcvMsg, L3Address rcdAddr);
+    void labelBetterForward(Ptr<const SyncBetterPacket> rcvMsg);
+    void forwardSyncBetter(Ptr<const SyncBetterPacket> rcvMsg);
+
     //message managers
     void manageSyncMessage(Ptr<const SyncCheckPacket> rcvMsg, L3Address rcdAddr);
     void manageSyncInterestMessage_old(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcdAddr);
     void manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMsg, L3Address rcvAddr);
     void manageSyncRequestMessage(Ptr<const SyncRequestPacket> rcvMsg, L3Address rcdAddr);
-    void manageSyncBetterMessage(Ptr<const SyncBetterPacket> rcvMsg, L3Address rcdAddr);
+    void manageSyncBetterMessage(Ptr<const SyncBetterPacket> rcvMsg, L3Address rcdAddr, L3Address destAddr);
 
     void sendSyncInterestPacket(L3Address dest);
     void sendSyncRequestPacket(L3Address dest, std::list<std::pair<L3Address, unsigned int>> &wl);
@@ -204,6 +249,11 @@ class INET_API DiscoveryApp : public ClockUserModuleMixin<ApplicationBase>, publ
 
     void generateRandomNewService(void);
     void addNewService(Service newService);
+    void generateInitNewService(int ns);
+
+    void doSomethingWhenAddService (std::tuple<L3Address, unsigned int, Services> &nt);
+
+    void execute100ms(void);
 
 public:
     DiscoveryApp() {};
