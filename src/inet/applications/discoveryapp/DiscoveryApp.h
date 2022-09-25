@@ -113,24 +113,26 @@ public:
     typedef struct service_owner {
         L3Address node_addr;
         uint32_t service_id;
+        uint32_t service__counter;
     } service_owner_t;
 
     friend bool operator==(const service_owner_t& a, const service_owner_t& b) {
-        return (a.node_addr == b.node_addr) && (a. service_id == b.service_id);
+        return (a.node_addr == b.node_addr) && (a.service_id == b.service_id) && (a.service__counter == b.service__counter);
     }
 
     friend bool operator<(const service_owner_t& a, const service_owner_t& b) {
-        return (a.node_addr < b.node_addr) && (a. service_id < b.service_id);
+        return (a.node_addr < b.node_addr) && (a.service_id < b.service_id) && (a.service__counter < b.service__counter);
     }
 
     friend std::ostream& operator<<(std::ostream& os, const service_owner_t& so) {
-        os << "<" << so.node_addr << "|" << so.service_id << ">";
+        os << "<" << so.node_addr << "|ID:" << so.service_id << "|C:" << so.service__counter << ">";
         return os;
     }
 
 public:
     std::map<uint32_t, simtime_t> service_creation_time;
     std::map<service_owner_t, simtime_t> service_registration_time;
+    std::vector<Service> my_service_vec;
     Ipv4Address myIPAddress;
     int myHostAddress;
 
@@ -149,11 +151,14 @@ public:
 
     bool broadcastInterest = false;
     int numServiceInit;
+    double timeCheckServiceOnOff;
+    double probabilityServiceOnOff;
 
     // state
     UdpSocket socket;
     ClockEvent *selfMsg = nullptr;
     ClockEvent *selfTimer100ms = nullptr;
+    ClockEvent *selfTimerXs = nullptr;
 
     // statistics
     int numSent = 0;
@@ -254,6 +259,7 @@ public:
     void doSomethingWhenAddService (std::tuple<L3Address, unsigned int, Services> &nt);
 
     void execute100ms(void);
+    void executeXtimer(void);
 
 public:
     DiscoveryApp() {};

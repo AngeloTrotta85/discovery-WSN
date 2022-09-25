@@ -72,6 +72,8 @@ void DiscoveryApp::initialize(int stage)
         dmax = par("dmax");
         broadcastInterest = par("broadcastInterest");
         numServiceInit = par("numServices");
+        timeCheckServiceOnOff = par("timeCheckServiceOnOff");
+        probabilityServiceOnOff = par("probabilityServiceOnOff");
 
         localPort = par("localPort");
         destPort = par("destPort");
@@ -219,8 +221,12 @@ void DiscoveryApp::processStart()
     }*/
     processSend();
 
-    clocktime_t d = Simtime(100, SIMTIME_MS);
+    clocktime_t d = ClockTime(100, SIMTIME_MS);
     scheduleClockEventAfter(d, selfTimer100ms);
+
+    clocktime_t d1 = ClockTime(truncnormal(timeCheckServiceOnOff, timeCheckServiceOnOff / 20.0), SIMTIME_S);
+    scheduleClockEventAfter(d1, selfTimerXs);
+
 }
 
 void DiscoveryApp::processSend()
@@ -266,6 +272,12 @@ void DiscoveryApp::handleMessageWhenUp(cMessage *msg)
         }
         else if (msg == selfTimer100ms) {
             execute100ms();
+            scheduleClockEventAfter(ClockTime(100, SIMTIME_MS), selfTimer100ms);
+        }
+        else if (msg == selfTimerXs) {
+            executeXtimer();
+
+            scheduleClockEventAfter(ClockTime(truncnormal(timeCheckServiceOnOff, timeCheckServiceOnOff / 10.0), SIMTIME_S), selfTimer100ms);
         }
     }
     else
@@ -301,6 +313,13 @@ void DiscoveryApp::refreshDisplay() const
 
 void DiscoveryApp::execute100ms (void) {
     if (myHostAddress == 0) {
+
+    }
+}
+
+void DiscoveryApp::executeXtimer (void) {
+    if (dblrand() < probabilityServiceOnOff) {
+        int n_service = std::get<2>(data_map[myIPAddress]).list_services.size();
 
     }
 }
@@ -1086,6 +1105,8 @@ void DiscoveryApp::generateInitNewService(int ns) {
 
     auto myL3Address = L3Address(myIPAddress);
 
+    my_service_vec.;
+
     for (int i = 0; i < ns; i++) {
         Service newS;
 
@@ -1099,6 +1120,8 @@ void DiscoveryApp::generateInitNewService(int ns) {
         strcpy(newS.description, ss.str().c_str());
 
         myServiceIDCounter++;
+
+        //my_service_vec
 
 
         // check if I have already at least one service
