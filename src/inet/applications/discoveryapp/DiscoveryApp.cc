@@ -46,6 +46,8 @@ Define_Module(DiscoveryApp);
 DiscoveryApp::~DiscoveryApp()
 {
     cancelAndDelete(selfMsg);
+    cancelAndDelete(selfTimer100ms);
+    cancelAndDelete(selfTimerXs);
 }
 
 void DiscoveryApp::initialize(int stage)
@@ -1105,7 +1107,43 @@ void DiscoveryApp::generateInitNewService(int ns) {
 
     auto myL3Address = L3Address(myIPAddress);
 
-    my_service_vec.;
+    my_service_vec.resize(ns, Service());
+
+    for (int i = 0; i < ns; i++) {
+        my_service_vec[i].id = myServiceIDCounter;
+        my_service_vec[i].active = (dblrand() < 0.5);
+
+        std::stringstream ss;
+        ss << "NewService-" << myHostAddress << "-" << myServiceIDCounter << "-" << simTime();
+        strcpy(my_service_vec[i].description, ss.str().c_str());
+
+        myServiceIDCounter++;
+
+        if (my_service_vec[i].active) {
+            // check if I have already at least one service
+            if (state_map.count(myL3Address) == 0) {
+                state_map[myL3Address] = std::make_pair(myL3Address, myCounter);
+            }
+            else{
+                state_map[myL3Address].second = myCounter;
+            }
+
+
+            if (data_map.count(myL3Address) == 0) {
+                //data_map[myL3Address] = std::make_tuple(myL3Address, myCounter, Services(newService));
+                data_map[myL3Address] = std::make_tuple(myL3Address, myCounter, Services());
+                std::get<2>(data_map[myL3Address]).add_service(my_service_vec[i]);
+            }
+            else {
+                std::get<1>(data_map[myL3Address]) = myCounter;
+                std::get<2>(data_map[myL3Address]).add_service(my_service_vec[i]);
+            }
+
+            service_creation_time[my_service_vec[i].id] = simTime();
+        }
+    }
+
+    /*
 
     for (int i = 0; i < ns; i++) {
         Service newS;
@@ -1145,6 +1183,8 @@ void DiscoveryApp::generateInitNewService(int ns) {
 
         service_creation_time[newS.id] = simTime();
     }
+
+    */
 
     myHash = calculate_state_vector_hash();
 }
