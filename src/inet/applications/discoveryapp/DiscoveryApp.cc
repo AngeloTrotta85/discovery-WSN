@@ -321,8 +321,66 @@ void DiscoveryApp::execute100ms (void) {
 
 void DiscoveryApp::executeXtimer (void) {
     if (dblrand() < probabilityServiceOnOff) {
-        int n_service = std::get<2>(data_map[myIPAddress]).list_services.size();
+        int n_service = my_service_vec.size();
+        int s2change = intrand(n_service);
 
+        auto myL3Address = L3Address(myIPAddress);
+        myCounter++;//update my main counter because I'm changing the service list
+
+        my_service_vec[s2change].version++;
+        if (my_service_vec[s2change].active) {
+            my_service_vec[s2change].active = false;
+
+            if (state_map.count(myL3Address) == 0) {
+                // warning! I should not be here
+                printf("WARNING!!! you should not be here: DiscoveryApp::executeXtimer 1\n");
+            }
+            else {
+                //if (state_map[myL3Address].s)
+            }
+        }
+        else {
+            my_service_vec[s2change].active = true;
+
+            // check if I have already at least one service
+            if (state_map.count(myL3Address) == 0) {
+                state_map[myL3Address] = std::make_pair(myL3Address, myCounter);
+            }
+            else{
+                state_map[myL3Address].second = myCounter;
+            }
+
+
+            if (data_map.count(myL3Address) == 0) {
+                //data_map[myL3Address] = std::make_tuple(myL3Address, myCounter, Services(newService));
+                data_map[myL3Address] = std::make_tuple(myL3Address, myCounter, Services());
+                std::get<2>(data_map[myL3Address]).add_service(my_service_vec[s2change]);
+            }
+            else {
+                std::get<1>(data_map[myL3Address]) = myCounter;
+                std::get<2>(data_map[myL3Address]).add_service(my_service_vec[s2change]);
+            }
+
+            //service_creation_time[my_service_vec[i].id] = simTime();
+
+        }
+
+        myHash = calculate_state_vector_hash();
+
+        //send BETTER
+        std::list<std::tuple<L3Address, unsigned int, Services>> better;
+
+        std::tuple<L3Address, unsigned int, Services> nt;
+        std::get<0>(nt) = myL3Address;
+        std::get<1>(nt) = myCounter;
+        std::get<2>(nt) = Services();
+        for (auto& l : std::get<2>(data_map[myL3Address]).list_services){
+            std::get<2>(nt).add_service(l);
+        }
+
+        better.push_back(nt);
+
+        sendSyncBetterPacket(Ipv4Address::ALLONES_ADDRESS, better);
     }
 }
 
@@ -1112,6 +1170,7 @@ void DiscoveryApp::generateInitNewService(int ns) {
     for (int i = 0; i < ns; i++) {
         my_service_vec[i].id = myServiceIDCounter;
         my_service_vec[i].active = (dblrand() < 0.5);
+        my_service_vec[i].version = 0;
 
         std::stringstream ss;
         ss << "NewService-" << myHostAddress << "-" << myServiceIDCounter << "-" << simTime();

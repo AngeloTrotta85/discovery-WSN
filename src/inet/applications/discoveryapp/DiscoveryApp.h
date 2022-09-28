@@ -43,6 +43,7 @@ public:
 
     uint32_t id;
     bool active;
+    int version;
     char description[128];
 };
 
