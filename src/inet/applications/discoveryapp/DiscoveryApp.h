@@ -75,7 +75,7 @@ inline std::ostream& operator<<(std::ostream& os, const Services& ss)
 {
     os << "{";
     for (auto& s : ss.list_services){
-        os << "[" << s.id << "-" << (s.active ? "A" : "NA") << "]-(" << s.description << ") ";
+        os << "[" << s.id << "-" << (s.active ? "A" : "NA") << "-V" << s.version << "]-(" << s.description << ") ";
     }
     os << "}";
     return os;
@@ -114,19 +114,19 @@ public:
     typedef struct service_owner {
         L3Address node_addr;
         uint32_t service_id;
-        uint32_t service__counter;
+        uint32_t service_counter;
     } service_owner_t;
 
     friend bool operator==(const service_owner_t& a, const service_owner_t& b) {
-        return (a.node_addr == b.node_addr) && (a.service_id == b.service_id) && (a.service__counter == b.service__counter);
+        return (a.node_addr == b.node_addr) && (a.service_id == b.service_id) && (a.service_counter == b.service_counter);
     }
 
     friend bool operator<(const service_owner_t& a, const service_owner_t& b) {
-        return (a.node_addr < b.node_addr) && (a.service_id < b.service_id) && (a.service__counter < b.service__counter);
+        return (a.node_addr < b.node_addr) && (a.service_id < b.service_id) && (a.service_counter < b.service_counter);
     }
 
     friend std::ostream& operator<<(std::ostream& os, const service_owner_t& so) {
-        os << "<" << so.node_addr << "|ID:" << so.service_id << "|C:" << so.service__counter << ">";
+        os << "<" << so.node_addr << "|ID:" << so.service_id << "|C:" << so.service_counter << ">";
         return os;
     }
 
@@ -257,7 +257,7 @@ public:
     void addNewService(Service newService);
     void generateInitNewService(int ns);
 
-    void doSomethingWhenAddService (std::tuple<L3Address, unsigned int, Services> &nt);
+    void doSomethingWhenAddService (std::tuple<L3Address, unsigned int, Services> &nt_new, std::tuple<L3Address, unsigned int, Services> &nt_old);
 
     void execute100ms(void);
     void executeXtimer(void);
