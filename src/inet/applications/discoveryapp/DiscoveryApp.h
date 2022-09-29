@@ -117,6 +117,13 @@ public:
         uint32_t service_counter;
     } service_owner_t;
 
+    typedef struct {
+        L3Address node_addr;
+        uint32_t service_id;
+        uint32_t service_counter;
+        simtime_t time;
+    } service_stat_t;
+
     friend bool operator==(const service_owner_t& a, const service_owner_t& b) {
         return (a.node_addr == b.node_addr) && (a.service_id == b.service_id) && (a.service_counter == b.service_counter);
     }
@@ -130,9 +137,24 @@ public:
         return os;
     }
 
+    friend std::ostream& operator<<(std::ostream& os, const service_stat_t& so) {
+        os << "<" << so.node_addr << "|ID:" << so.service_id << "|C:" << so.service_counter << "|T:" << so.time << ">";
+        return os;
+    }
+
 public:
     std::map<uint32_t, simtime_t> service_creation_time;
     std::map<service_owner_t, simtime_t> service_registration_time;
+    std::map<service_owner_t, simtime_t> service_updated_time;
+
+    std::list<service_stat_t> service_creation_stat;
+    std::list<service_stat_t> service_update_stat;
+
+    uint32_t overhead_byte_check = 0;
+    uint32_t overhead_byte_intent = 0;
+    uint32_t overhead_byte_request = 0;
+    uint32_t overhead_byte_better = 0;
+
     std::vector<Service> my_service_vec;
     Ipv4Address myIPAddress;
     int myHostAddress;
@@ -261,6 +283,9 @@ public:
 
     void execute100ms(void);
     void executeXtimer(void);
+
+    bool is_present(L3Address addr, uint32_t s_id, uint32_t s_ver, std::list<service_stat_t> &service_creation_stat);
+    service_stat_t get_service_stat(L3Address addr, uint32_t s_id, uint32_t s_ver, std::list<service_stat_t> &service_creation_stat);
 
 public:
     DiscoveryApp() {};

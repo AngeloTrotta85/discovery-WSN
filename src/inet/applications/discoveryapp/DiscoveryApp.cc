@@ -67,6 +67,10 @@ void DiscoveryApp::initialize(int stage)
         WATCH_MAP(data_map);
         WATCH_MAP(service_creation_time);
         WATCH_MAP(service_registration_time);
+        WATCH_MAP(service_updated_time);
+        WATCH_VECTOR(my_service_vec);
+        WATCH_LIST(service_creation_stat);
+        WATCH_LIST(service_update_stat);
 
         myHash = calculate_state_vector_hash();
         myHostAddress = this->getParentModule()->getIndex();
@@ -171,7 +175,10 @@ void DiscoveryApp::sendPacket()
     payload->setTtl(dmax);
 
     //payload->setChunkLength(B(par("messageLength")));
-    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint32_t)));
+    int byte_len = sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint32_t);
+    payload->setChunkLength(B(byte_len));
+
+    overhead_byte_check += byte_len;
 
     payload->addTag<HopLimitReq>()->setHopLimit(1);
 
@@ -380,6 +387,27 @@ void DiscoveryApp::executeXtimer (void) {
             so.service_id = my_service_vec[s2change].id;
             so.service_counter = my_service_vec[s2change].version;
             service_registration_time[so] = simTime();
+
+            service_owner_t so2;
+            so2.node_addr = myL3Address;
+            so2.service_id = my_service_vec[s2change].id;
+            so2.service_counter = my_service_vec[s2change].version;
+            service_updated_time[so2] = simTime();
+
+
+            service_stat_t new_stat_creation;
+            new_stat_creation.node_addr = myL3Address;
+            new_stat_creation.service_id = my_service_vec[s2change].id;
+            new_stat_creation.service_counter = my_service_vec[s2change].version;
+            new_stat_creation.time = simTime();
+            service_creation_stat.push_front(new_stat_creation);
+
+            service_stat_t new_stat_update;
+            new_stat_update.node_addr = myL3Address;
+            new_stat_update.service_id = my_service_vec[s2change].id;
+            new_stat_update.service_counter = my_service_vec[s2change].version;
+            new_stat_update.time = simTime();
+            service_update_stat.push_front(new_stat_update);
 
         }
 
@@ -597,7 +625,9 @@ void DiscoveryApp::forwardSyncCheck(Ptr<const SyncCheckPacket> rcvMsg) {
     payload->setTtl(rcvMsg->getTtl() - 1);
 
     //payload->setChunkLength(B(par("messageLength")));
-    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint32_t)));
+    int byte_len = sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint32_t);
+    payload->setChunkLength(B(byte_len));
+    overhead_byte_check += byte_len;
 
     payload->addTag<HopLimitReq>()->setHopLimit(1);
 
@@ -852,7 +882,9 @@ void DiscoveryApp::forwardSyncInterest(Ptr<const SyncInterestPacket> rcvMsg) {
     }
 
     //payload->setChunkLength(B(par("messageLength")));
-    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t))) ));
+    int byte_send = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t)));
+    payload->setChunkLength(B(byte_send));
+    overhead_byte_intent += byte_send;
 
     //payload->setHash(std::hash<std::string>{}(state_vector_string()));
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
@@ -900,7 +932,9 @@ void DiscoveryApp::sendSyncRequestPacket(L3Address dest, std::list<std::pair<L3A
 
 
         //payload->setChunkLength(B(par("messageLength")));
-        payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t))) ));
+        int byte_send = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t))) ;
+        payload->setChunkLength(B(byte_send));
+        overhead_byte_request += byte_send;
 
         //payload->setHash(std::hash<std::string>{}(state_vector_string()));
         payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
@@ -989,7 +1023,9 @@ void DiscoveryApp::sendSyncBetterPacket(L3Address dest, std::list<std::tuple<L3A
 
 
     //payload->setChunkLength(B(par("messageLength")));
-    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + services_size ));
+    int byte_send = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + services_size;
+    payload->setChunkLength(B(byte_send));
+    overhead_byte_better += byte_send;
 
     //payload->setHash(std::hash<std::string>{}(state_vector_string()));
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
@@ -1231,6 +1267,27 @@ void DiscoveryApp::generateInitNewService(int ns) {
             so.service_id = my_service_vec[i].id;
             so.service_counter = my_service_vec[i].version;
             service_registration_time[so] = simTime();
+
+            service_owner_t so2;
+            so2.node_addr = myL3Address;
+            so2.service_id = my_service_vec[i].id;
+            so2.service_counter = my_service_vec[i].version;
+            service_updated_time[so2] = simTime();
+
+
+            service_stat_t new_stat_creation;
+            new_stat_creation.node_addr = myL3Address;
+            new_stat_creation.service_id = my_service_vec[i].id;
+            new_stat_creation.service_counter = my_service_vec[i].version;
+            new_stat_creation.time = simTime();
+            service_creation_stat.push_front(new_stat_creation);
+
+            service_stat_t new_stat_update;
+            new_stat_update.node_addr = myL3Address;
+            new_stat_update.service_id = my_service_vec[i].id;
+            new_stat_update.service_counter = my_service_vec[i].version;
+            new_stat_update.time = simTime();
+            service_update_stat.push_front(new_stat_update);
         }
     }
 
@@ -1318,7 +1375,9 @@ void DiscoveryApp::sendSyncInterestPacket(L3Address dest)
     EV_INFO << endl;
 
     //payload->setChunkLength(B(par("messageLength")));
-    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t))) ));
+    int byte_len = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + (state_map.size() * (sizeof(uint32_t) + sizeof(uint32_t)));
+    payload->setChunkLength(B(byte_len));
+    overhead_byte_intent += byte_len;
 
     //payload->setHash(std::hash<std::string>{}(state_vector_string()));
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
@@ -1341,6 +1400,79 @@ void DiscoveryApp::doSomethingWhenAddService (std::tuple<L3Address, unsigned int
     if (std::get<0>(nt_new) != std::get<0>(nt_old)) {
         printf("WARNING!!! - DiscoveryApp::doSomethingWhenAddService - 0   -->   %s != %s \n", std::get<0>(nt_new).str().c_str(), std::get<0>(nt_old).str().c_str());
     }
+
+    for (auto& s_new : std::get<2>(nt_new).list_services) {
+        service_stat_t so_new;
+        so_new.node_addr = std::get<0>(nt_new);
+        so_new.service_id = s_new.id;
+        so_new.service_counter = s_new.version;
+        so_new.time = simTime();
+
+        bool id_trovato = false;
+        bool ver_maggiore = false;
+
+        for (auto& s_old : std::get<2>(nt_old).list_services) {
+            service_stat_t so_old;
+            so_old.node_addr = std::get<0>(nt_old);
+            so_old.service_id = s_old.id;
+            so_old.service_counter = s_old.version;
+            so_new.time = simTime();
+
+            if (so_new.service_id == so_old.service_id) {
+                id_trovato = true;
+                if (so_new.service_counter > so_old.service_counter) {
+                    ver_maggiore = true;
+                }
+            }
+        }
+
+        if ((!id_trovato) || ver_maggiore ) {
+            service_update_stat.push_front(so_new);
+
+            int nnodes = this->getParentModule()->getVectorSize();
+            simtime_t diffbegin;
+            int countUpdate = 0;
+            for (int i = 0; i < nnodes; i++) {
+                //DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getName(), i));
+                DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getParentModule()->getName(), i)->getSubmodule(this->getName(), 0));
+                auto appL3Address = L3Address(app->myIPAddress);
+
+                if (appL3Address == so_new.node_addr) {
+                    if (is_present(so_new.node_addr, so_new.service_id, so_new.service_counter, app->service_creation_stat)){
+                    //if (app->service_registration_time.count(so_new) != 0) {
+                    //if (app->service_registration_time.count(so_new) != 0) {
+                        service_stat_t app_stat = get_service_stat(so_new.node_addr, so_new.service_id, so_new.service_counter, app->service_creation_stat);
+                        simtime_t diff = simTime() - app_stat.time;
+                        diffbegin = diff;
+                        printf("%s - SYNC!! of %s. service_node: %s; service_id: %d; service_Ver: %d. Time needed to sync is: %s\n",
+                                myIPAddress.str().c_str(),
+                                appL3Address.str().c_str(),
+                                so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter,
+                                diff.str().c_str() );
+                        fflush(stdout);
+                    }
+                    else {
+                        printf("WARNING!!! - DiscoveryApp::doSomethingWhenAddService - 1\n");fflush(stdout);
+                    }
+
+                }
+
+                if (is_present(so_new.node_addr, so_new.service_id, so_new.service_counter, app->service_update_stat)) {
+                    countUpdate++;
+                }
+            }
+
+            if (countUpdate == nnodes) {
+                printf("%s - ALL SYNC!! service_node: %s; service_id: %d; service_Ver: %d. Time needed to sync is: %s\n",
+                        myIPAddress.str().c_str(),
+                        so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter,
+                        diffbegin.str().c_str());fflush(stdout);
+            }
+        }
+    }
+
+    /*
+    return;
 
     for (auto& s_new : std::get<2>(nt_new).list_services) {
         service_owner_t so_new;
@@ -1366,13 +1498,16 @@ void DiscoveryApp::doSomethingWhenAddService (std::tuple<L3Address, unsigned int
         }
 
         if ((!id_trovato) || ver_maggiore ) {
-            printf("%s - SYNC!! service_node: %s; service_id: %d; service_Ver: %d\n",
-                    myIPAddress.str().c_str(),
-                    so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter);
-            fflush(stdout);
+            //printf("%s - SYNC!! service_node: %s; service_id: %d; service_Ver: %d\n",
+            //        myIPAddress.str().c_str(),
+            //        so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter);
+            //fflush(stdout);
+
+            //update my service_updated_time
+            service_updated_time[so_new] = simTime();
 
             int nnodes = this->getParentModule()->getVectorSize();
-            int countUpdate = 0;
+            simtime_t diffbegin;
             for (int i = 0; i < nnodes; i++) {
                 //DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getName(), i));
                 DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getParentModule()->getName(), i)->getSubmodule(this->getName(), 0));
@@ -1380,17 +1515,59 @@ void DiscoveryApp::doSomethingWhenAddService (std::tuple<L3Address, unsigned int
 
                 if (appL3Address == so_new.node_addr) {
                     if (app->service_registration_time.count(so_new) != 0) {
-                        simtime_t diff = simTime() - service_registration_time[so_new];
-                        printf("SYNC!! Time needed to sync is: %s\n", diff.str().c_str());fflush(stdout);
+                        simtime_t diff = simTime() - app->service_registration_time[so_new];
+                        diffbegin = diff;
+                        printf("%s - SYNC!! of %s. service_node: %s; service_id: %d; service_Ver: %d. Time needed to sync is: %s\n",
+                                myIPAddress.str().c_str(),
+                                appL3Address.str().c_str(),
+                                so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter,
+                                diff.str().c_str() );
+                        fflush(stdout);
                     }
                     else {
                         printf("WARNING!!! - DiscoveryApp::doSomethingWhenAddService - 1\n");fflush(stdout);
                     }
+
                 }
+            }
+
+            int countUpdate = 0;
+            for (int i = 0; i < nnodes; i++) {
+                //DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getName(), i));
+                DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getParentModule()->getName(), i)->getSubmodule(this->getName(), 0));
+                auto appL3Address = L3Address(app->myIPAddress);
+
+                printf("Checking %s ... ", appL3Address.str().c_str());
+                for (auto& cc : app->service_updated_time) {
+                    if ((cc.first.node_addr == so_new.node_addr) && (cc.first.service_counter == so_new.service_counter) && (cc.first.service_id == so_new.service_id)) {
+                        countUpdate++;
+                        //printf("%s [%s] - Node %s has updated service_node: %s; service_id: %d; service_Ver: %d; at time: %s\n",
+                        //        myIPAddress.str().c_str(),
+                        //        simTime().str().c_str(),
+                        //        appL3Address.str().c_str(),
+                        //        so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter,
+                        //        app->service_updated_time[so_new].str().c_str());
+
+                        //fflush(stdout);
+                        printf("SI");
+                        break;
+                    }
+                }
+                printf("\n");
+
+
+            }
+
+            if (countUpdate == nnodes) {
+                printf("%s - ALL SYNC!! service_node: %s; service_id: %d; service_Ver: %d. Time needed to sync is: %s\n",
+                        myIPAddress.str().c_str(),
+                        so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter,
+                        diffbegin.str().c_str());fflush(stdout);
             }
 
         }
     }
+    */
 
     /*for (auto& s : std::get<2>(nt).list_services) {
         service_owner_t so;
@@ -1421,6 +1598,30 @@ void DiscoveryApp::doSomethingWhenAddService (std::tuple<L3Address, unsigned int
     }*/
 
     //printf("%s - doSomethingWhenAddService - END\n", myIPAddress.str().c_str());
+}
+
+bool DiscoveryApp::is_present(L3Address addr, uint32_t s_id, uint32_t s_ver, std::list<service_stat_t> &stats) {
+    for (auto& ss : stats) {
+        if ((ss.node_addr == addr) && (ss.service_counter == s_ver) && (ss.service_id == s_id)){
+            return true;
+        }
+    }
+    return false;
+}
+
+DiscoveryApp::service_stat_t DiscoveryApp::get_service_stat(L3Address addr, uint32_t s_id, uint32_t s_ver, std::list<service_stat_t> &stats) {
+    service_stat_t ris;
+
+    for (auto& ss : stats) {
+        if ((ss.node_addr == addr) && (ss.service_counter == s_ver) && (ss.service_id == s_id)){
+            ris.node_addr = addr;
+            ris.service_counter = s_ver;
+            ris.service_id = s_id;
+            ris.time = ss.time;
+            break;
+        }
+    }
+    return ris;
 }
 
 } // namespace inet
