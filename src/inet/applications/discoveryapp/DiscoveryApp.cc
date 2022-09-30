@@ -109,6 +109,13 @@ void DiscoveryApp::finish()
 {
     recordScalar("packets sent", numSent);
     recordScalar("packets received", numReceived);
+
+    recordScalar("overhead check", overhead_byte_check);
+    recordScalar("overhead interest", overhead_byte_intent);
+    recordScalar("overhead request", overhead_byte_request);
+    recordScalar("overhead better", overhead_byte_better);
+    recordScalar("overhead all", overhead_byte_check + overhead_byte_intent + overhead_byte_request + overhead_byte_better);
+
     ApplicationBase::finish();
 }
 
@@ -1444,12 +1451,14 @@ void DiscoveryApp::doSomethingWhenAddService (std::tuple<L3Address, unsigned int
                         service_stat_t app_stat = get_service_stat(so_new.node_addr, so_new.service_id, so_new.service_counter, app->service_creation_stat);
                         simtime_t diff = simTime() - app_stat.time;
                         diffbegin = diff;
-                        printf("%s - SYNC!! of %s. service_node: %s; service_id: %d; service_Ver: %d. Time needed to sync is: %s\n",
-                                myIPAddress.str().c_str(),
-                                appL3Address.str().c_str(),
-                                so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter,
-                                diff.str().c_str() );
-                        fflush(stdout);
+                        //printf("%s - SYNC!! of %s. service_node: %s; service_id: %d; service_Ver: %d. Time needed to sync is: %s\n",
+                        //        myIPAddress.str().c_str(),
+                        //        appL3Address.str().c_str(),
+                        //        so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter,
+                        //        diff.str().c_str() );
+                        //fflush(stdout);
+
+                        recordScalar("service one sync", diff);
                     }
                     else {
                         printf("WARNING!!! - DiscoveryApp::doSomethingWhenAddService - 1\n");fflush(stdout);
@@ -1463,10 +1472,12 @@ void DiscoveryApp::doSomethingWhenAddService (std::tuple<L3Address, unsigned int
             }
 
             if (countUpdate == nnodes) {
-                printf("%s - ALL SYNC!! service_node: %s; service_id: %d; service_Ver: %d. Time needed to sync is: %s\n",
-                        myIPAddress.str().c_str(),
-                        so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter,
-                        diffbegin.str().c_str());fflush(stdout);
+                //printf("%s - ALL SYNC!! service_node: %s; service_id: %d; service_Ver: %d. Time needed to sync is: %s\n",
+                //        myIPAddress.str().c_str(),
+                //        so_new.node_addr.str().c_str(), so_new.service_id, so_new.service_counter,
+                //        diffbegin.str().c_str());fflush(stdout);
+
+                recordScalar("service all sync", diffbegin);
             }
         }
     }
