@@ -45,6 +45,7 @@ simple DiscoveryApp like IApp
         int serviceDescrSize = default (128);
         double timeCheckServiceOnOff @unit(s) = default (3s);
         double probabilityServiceOnOff = default (0.2);
+        string algo @enum("full", "old", "basic") = default("full");
         
         string interfaceTableModule;   // The path to the InterfaceTable module
         string clockModule = default(""); // relative path of a module that implements IClock; optional

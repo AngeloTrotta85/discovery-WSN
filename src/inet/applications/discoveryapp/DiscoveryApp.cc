@@ -81,6 +81,18 @@ void DiscoveryApp::initialize(int stage)
         timeCheckServiceOnOff = par("timeCheckServiceOnOff");
         probabilityServiceOnOff = par("probabilityServiceOnOff");
 
+        algo_type = algo_type_t::FULL;
+        std::string algo_str = par("algo"); //"full", "old", "basic"
+        if (algo_str.compare("full") == 0){
+            algo_type = algo_type_t::FULL;
+        }
+        else if (algo_str.compare("old") == 0){
+            algo_type = algo_type_t::OLD;
+        }
+        else if (algo_str.compare("basic") == 0){
+            algo_type = algo_type_t::BASIC;
+        }
+
         localPort = par("localPort");
         destPort = par("destPort");
         startTime = par("startTime");
@@ -165,9 +177,9 @@ L3Address DiscoveryApp::chooseDestAddr()
 
 void DiscoveryApp::sendPacket()
 {
-    if (simTime() < 100) {
-        generateRandomNewService(); //TODO remove
-    }
+    //if (simTime() < 100) {
+    //    generateRandomNewService(); //TODO remove
+    //}
 
     std::ostringstream str;
     str << packetName << "-Check-" << numSent;
@@ -248,7 +260,35 @@ void DiscoveryApp::processStart()
 
 void DiscoveryApp::processSend()
 {
-    sendPacket();
+    if (algo_type == algo_type_t::FULL) {
+        sendPacket();
+    }
+    else if (algo_type == algo_type_t::OLD) {
+        sendSyncInterestPacket(Ipv4Address::ALLONES_ADDRESS);
+    }
+    else if (algo_type == algo_type_t::BASIC) {
+        std::list<std::tuple<L3Address, unsigned int, Services>> better;
+
+        for (auto& el : data_map){
+            std::tuple<L3Address, unsigned int, Services> nt;
+            std::get<0>(nt) = std::get<0>(el.second);
+            std::get<1>(nt) = std::get<1>(el.second);
+            std::get<2>(nt) = Services();
+            for (auto& l : std::get<2>(el.second).list_services){
+                std::get<2>(nt).add_service(l);
+            }
+
+            better.push_back(nt);
+        }
+
+        sendSyncBetterPacket(Ipv4Address::ALLONES_ADDRESS, better);
+    }
+    else {
+        printf("WARNING! bad algo_type: %d", algo_type); fflush(stdout);
+    }
+
+
+
     clocktime_t d = par("sendInterval");
     if (stopTime < CLOCKTIME_ZERO || getClockTime() + d < stopTime) {
         selfMsg->setKind(SEND);
@@ -335,6 +375,7 @@ void DiscoveryApp::execute100ms (void) {
 }
 
 void DiscoveryApp::executeXtimer (void) {
+    //if ( (dblrand() < probabilityServiceOnOff) && (simTime() < 100) ) {
     if (dblrand() < probabilityServiceOnOff) {
         int n_service = my_service_vec.size();
         int s2change = intrand(n_service);
@@ -670,7 +711,7 @@ void DiscoveryApp::manageSyncInterestMessage(Ptr<const SyncInterestPacket> rcvMs
     numInterestReceived++;
 
     //chekc if need to forward
-    if (    broadcastInterest &&
+    if (    (broadcastInterest || (algo_type == algo_type_t::OLD)) &&
             (rcvMsg->getTtl() > 1) &&
             checkInterestForward(rcvMsg, rcvAddr)) {
         forwardSyncInterest(rcvMsg);
@@ -1012,7 +1053,7 @@ void DiscoveryApp::sendSyncBetterPacket(L3Address dest, std::list<std::tuple<L3A
     const auto& payload = makeShared<SyncBetterPacket>();
 
     payload->setSrcAddr(myIPAddress);
-    payload->setSequenceNumber(numInterestSent);
+    payload->setSequenceNumber(numBetterSent);
     payload->setTtl(dmax);
 
     int services_size = 0;

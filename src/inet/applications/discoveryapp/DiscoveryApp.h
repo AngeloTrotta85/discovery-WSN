@@ -162,6 +162,12 @@ public:
   protected:
     enum SelfMsgKinds { START = 1, SEND, STOP };
 
+    typedef enum {
+        FULL,
+        OLD,
+        BASIC
+    } algo_type_t;
+
     // parameters
     std::vector<L3Address> destAddresses;
     std::vector<std::string> destAddressStr;
@@ -176,6 +182,8 @@ public:
     int numServiceInit;
     double timeCheckServiceOnOff;
     double probabilityServiceOnOff;
+
+    algo_type_t algo_type;
 
     // state
     UdpSocket socket;
