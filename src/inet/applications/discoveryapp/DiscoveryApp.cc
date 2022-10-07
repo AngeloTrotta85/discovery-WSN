@@ -383,7 +383,18 @@ void DiscoveryApp::execute100ms (void) {
     }
 
     //any node
+    int nnodes = this->getParentModule()->getVectorSize();
+    for (int i = 0; i < nnodes; i++) {
+        //DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getName(), i));
+        DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getParentModule()->getName(), i)->getSubmodule(this->getName(), 0));
+        auto appL3Address = L3Address(app->myIPAddress);
 
+        if (i != myHostAddress) {
+            for (auto& elvec : app->my_service_vec) {
+                if ()
+            }
+        }
+    }
 }
 
 void DiscoveryApp::executeXtimer (void) {
