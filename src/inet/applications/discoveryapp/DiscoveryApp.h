@@ -44,7 +44,7 @@ public:
     uint32_t id;
     bool active;
     int version;
-    char description[128];
+    char description[256];
 };
 
 class Services {
@@ -203,6 +203,8 @@ public:
     std::map<L3Address, std::pair<L3Address, unsigned int>> state_map;
     std::map<L3Address, std::tuple<L3Address, unsigned int, Services>> data_map;
     unsigned int myCounter = 0;
+
+    std::map<L3Address, int> address_map;
 
     unsigned int myServiceIDCounter = 0;
 

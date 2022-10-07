@@ -43,7 +43,7 @@ simple DiscoveryApp like IApp
         bool broadcastInterest = default (false);
         int numServices = default (5);
         int serviceDescrSize = default (128);
-        double timeCheckServiceOnOff @unit(s) = default (3s);
+        double timeCheckServiceOnOff @unit(s) = default (5s);
         double probabilityServiceOnOff = default (0.2);
         string algo @enum("full", "old", "basic") = default("full");
         

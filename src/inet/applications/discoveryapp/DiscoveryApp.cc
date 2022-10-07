@@ -248,6 +248,15 @@ void DiscoveryApp::processStart()
             scheduleClockEventAt(stopTime, selfMsg);
         }
     }*/
+
+    int nnodes = this->getParentModule()->getVectorSize();
+    for (int i = 0; i < nnodes; i++) {
+        DiscoveryApp *app = check_and_cast<DiscoveryApp *>(this->getParentModule()->getParentModule()->getSubmodule(this->getParentModule()->getName(), i)->getSubmodule(this->getName(), 0));
+        auto appL3Address = L3Address(app->myIPAddress);
+
+        address_map[appL3Address] = i;
+    }
+
     processSend();
 
     clocktime_t d = ClockTime(100, SIMTIME_MS);
@@ -372,6 +381,9 @@ void DiscoveryApp::execute100ms (void) {
     if (myHostAddress == 0) {
 
     }
+
+    //any node
+
 }
 
 void DiscoveryApp::executeXtimer (void) {
@@ -1060,7 +1072,7 @@ void DiscoveryApp::sendSyncBetterPacket(L3Address dest, std::list<std::tuple<L3A
 
     for (auto& blel : bl){
         payload->msg_data_vector.push_back(blel);
-        services_size += sizeof(uint32_t) + sizeof(uint32_t) + (std::get<2>(blel).list_services.size() * (sizeof(uint32_t) + 128));
+        services_size += sizeof(uint32_t) + sizeof(uint32_t) + (std::get<2>(blel).list_services.size() * (sizeof(uint32_t) + 256));
     }
 
     EV_INFO << "Sending BETTER: ";
@@ -1188,7 +1200,7 @@ void DiscoveryApp::forwardSyncBetter(Ptr<const SyncBetterPacket> rcvMsg) {
 
     for (auto& blel : rcvMsg->msg_data_vector){
         payload->msg_data_vector.push_back(blel);
-        services_size += sizeof(uint32_t) + sizeof(uint32_t) + (std::get<2>(blel).list_services.size() * (sizeof(uint32_t) + 128));
+        services_size += sizeof(uint32_t) + sizeof(uint32_t) + (std::get<2>(blel).list_services.size() * (sizeof(uint32_t) + 256));
     }
 
     //payload->setChunkLength(B(par("messageLength")));
