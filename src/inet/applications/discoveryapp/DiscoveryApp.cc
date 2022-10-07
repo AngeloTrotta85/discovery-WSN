@@ -128,6 +128,14 @@ void DiscoveryApp::finish()
     recordScalar("overhead better", overhead_byte_better);
     recordScalar("overhead all", overhead_byte_check + overhead_byte_intent + overhead_byte_request + overhead_byte_better);
 
+    recordScalar("overhead check time", overhead_byte_check / simTime().dbl());
+    recordScalar("overhead interest time", overhead_byte_intent / simTime().dbl());
+    recordScalar("overhead request time", overhead_byte_request / simTime().dbl());
+    recordScalar("overhead better time", overhead_byte_better / simTime().dbl());
+    recordScalar("overhead all time", (overhead_byte_check + overhead_byte_intent + overhead_byte_request + overhead_byte_better) / simTime().dbl());
+
+    recordScalar("active sync ratio", ((double) active_OK) / ((double) (active_OK + active_NO)));
+
     ApplicationBase::finish();
 }
 
@@ -391,7 +399,20 @@ void DiscoveryApp::execute100ms (void) {
 
         if (i != myHostAddress) {
             for (auto& elvec : app->my_service_vec) {
-                if ()
+                bool active_here = false;
+                if (data_map.count(appL3Address) != 0) {
+                    for (auto& ss : std::get<2>(data_map[appL3Address]).list_services) {
+                        if(ss.id == elvec.id) {
+                            active_here = ss.active;
+                        }
+                    }
+                }
+                if (elvec.active == active_here) {
+                    active_OK++;
+                }
+                else {
+                    active_NO++;
+                }
             }
         }
     }

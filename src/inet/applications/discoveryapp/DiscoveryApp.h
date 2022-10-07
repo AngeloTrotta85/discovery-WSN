@@ -231,6 +231,9 @@ public:
     int numBetterReceived = 0;
     int numBetterForwarded = 0;
 
+    int active_OK = 0;
+    int active_NO = 0;
+
     std::size_t myHash;
 
   protected:
