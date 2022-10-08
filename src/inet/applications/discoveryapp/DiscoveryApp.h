@@ -44,7 +44,7 @@ public:
     uint32_t id;
     bool active;
     int version;
-    char description[256];
+    char description[128];
 };
 
 class Services {
