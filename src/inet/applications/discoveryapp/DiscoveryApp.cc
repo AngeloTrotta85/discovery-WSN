@@ -119,6 +119,8 @@ void DiscoveryApp::initialize(int stage)
 
 void DiscoveryApp::finish()
 {
+    double nnodes = this->getParentModule()->getVectorSize();
+
     recordScalar("packets sent", numSent);
     recordScalar("packets received", numReceived);
 
@@ -133,6 +135,12 @@ void DiscoveryApp::finish()
     recordScalar("overhead request time", overhead_byte_request / simTime().dbl());
     recordScalar("overhead better time", overhead_byte_better / simTime().dbl());
     recordScalar("overhead all time", (overhead_byte_check + overhead_byte_intent + overhead_byte_request + overhead_byte_better) / simTime().dbl());
+
+    recordScalar("overhead check time-node", (overhead_byte_check / simTime().dbl()) / nnodes);
+    recordScalar("overhead interest time-node", (overhead_byte_intent / simTime().dbl()) / nnodes);
+    recordScalar("overhead request time-node", (overhead_byte_request / simTime().dbl()) / nnodes);
+    recordScalar("overhead better time-node", (overhead_byte_better / simTime().dbl()) / nnodes);
+    recordScalar("overhead all time-node", ((overhead_byte_check + overhead_byte_intent + overhead_byte_request + overhead_byte_better) / simTime().dbl()) / nnodes);
 
     recordScalar("active sync ratio", ((double) active_OK) / ((double) (active_OK + active_NO)));
 
@@ -1236,7 +1244,10 @@ void DiscoveryApp::forwardSyncBetter(Ptr<const SyncBetterPacket> rcvMsg) {
     }
 
     //payload->setChunkLength(B(par("messageLength")));
-    payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + services_size ));
+    //payload->setChunkLength(B(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + services_size ));
+    int byte_send = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) + services_size;
+    payload->setChunkLength(B(byte_send));
+    overhead_byte_better += byte_send;
 
     //payload->setHash(std::hash<std::string>{}(state_vector_string()));
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
